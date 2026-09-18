@@ -99,6 +99,18 @@ this an information tool rather than a regulated medical device.
   good news.
 - **FDA Drug Shortages** site for cross-checking.
 
+> **⚠️ Practical note for this repo's dev environment.** The Claude Code web session's egress
+> policy currently allows **only** `github.com` and package registries (npm, PyPI, crates,
+> Go proxy). I probed it directly: `api.fda.gov`, `open.fda.gov`, `example.com` and
+> `cdn.jsdelivr.net` all return **403 CONNECT tunnel failed**. So RefillRadar's live API
+> calls **cannot be exercised from a default web session** — they will work fine on your own
+> machine. Two implications, and they are good engineering practice regardless:
+> 1. Put the openFDA client behind an interface with a **recorded-fixture implementation**, so
+>    tests and local development run fully offline against saved JSON responses.
+> 2. That is also what makes the matching logic testable in CI — GitHub Actions runners should
+>    not depend on a third-party API being up. **Never let your test suite fail because
+>    someone else's server is having a bad day.**
+
 ---
 
 ## Stack, and why

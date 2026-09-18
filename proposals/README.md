@@ -21,6 +21,7 @@ Read this file first. Each app then has its own detailed page:
 | 3 | **RenewalGuard** | ~70% of Medicaid terminations are paperwork failures, not ineligibility | Medium | [03-renewalguard.md](03-renewalguard.md) |
 | 4 | **SafeWord** | Americans 60+ lost $7.7B+ to fraud in 2025; AI voice cloning is the new vector | Medium | [04-safeword.md](04-safeword.md) |
 | 5 | **BirthPath** | 1 in 3 US counties are maternity care deserts | **Hardest** | [05-birthpath.md](05-birthpath.md) |
+| — | *Backlog* | Two deferred ideas + other domains researched | — | [BACKLOG.md](BACKLOG.md) |
 
 ---
 
@@ -57,7 +58,8 @@ favourites**:
   Aware, CivicDigest and CivicSummary are all already here.
 
 I am telling you about the ideas I *rejected* because knowing why something was cut is worth
-as much as knowing why something was kept.
+as much as knowing why something was kept. **Both are parked in [BACKLOG.md](BACKLOG.md)** with the research intact and explicit triggers for revisiting
+them — neither was rejected for being a bad idea, only for being someone else's idea first.
 
 **Filter 4 — Can one person actually ship a v1?**
 Ambition is free; shipping is not. Each proposal below has a deliberately small v0.1 scope.

@@ -20,6 +20,7 @@ documented problems in the world today.
 | 3 | [RenewalGuard](proposals/03-renewalguard.md) | ~70% of Medicaid terminations are paperwork failures, not ineligibility | Medium |
 | 4 | [SafeWord](proposals/04-safeword.md) | Americans 60+ lost $7.7B+ to fraud in 2025; AI voice cloning is the new vector | Medium |
 | 5 | [BirthPath](proposals/05-birthpath.md) | 1 in 3 US counties are maternity care deserts | **Hardest** |
+| — | [**Backlog**](proposals/BACKLOG.md) | Two deferred ideas, kept with research + revisit triggers | — |
 
 **Recommended first build: [RefillRadar](proposals/02-refillradar.md)** — one free public API,
 straightforward logic, and a natural fit for the Java already in this repo.
@@ -42,6 +43,7 @@ sources could not be opened directly during research — this is documented in t
 ├── README.md                    ← you are here
 ├── proposals/                   ← the five app proposals
 │   ├── README.md                ← index, methodology, sourcing, recommendation
+│   ├── BACKLOG.md               ← deferred ideas + other domains researched
 │   ├── 01-shadeclock.md
 │   ├── 02-refillradar.md
 │   ├── 03-renewalguard.md
