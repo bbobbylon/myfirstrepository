@@ -81,6 +81,59 @@ jobs:
       - name: Smoke test the image
         run: |
           docker run -d --name refillradar -p 8080:8080 refillradar:${{ github.sha }}
-          curl --retry 30 --retry-delay 2 --retry-connrefused -sS \
-            localhost:8080/api/users/ci-smoke-test/supply-check | tee /dev/stderr | grep -q '"shortagesScanned":8'
+
+          # Wait for the JVM to actually bind the port before curling it.
+          #
+          # The first version of this step trusted `curl --retry-connrefused` alone
+          # and failed on PR #1 with `curl: (56) Recv failure: Connection reset by
+          # peer`, 150ms after `docker run` returned. The cause: --retry-connrefused
+          # covers ECONNREFUSED only, and a reset is NOT a refusal. While the
+          # container is up but the app inside has not bound 8080, Docker's port
+          # proxy ACCEPTS the connection and then resets it - so curl saw a
+          # non-retryable error and gave up instantly against an app needing ~2s.
+          #
+          # Reproduced locally against a socket that accepts-then-resets:
+          #   --retry 4 --retry-delay 1 --retry-connrefused ............ gave up in 6ms
+          #   ...same + --retry-all-errors ............................. retried, 4016ms
+          #
+          # It passed on a local machine precisely because there is no proxy in
+          # front there: the same race produces error 7 (refused), which
+          # --retry-connrefused does handle. Green locally, red in a container.
+          echo "Waiting for application startup..."
+          for i in $(seq 1 60); do
+            if docker logs refillradar 2>&1 | grep -q "Started RefillRadarApplication"; then
+              echo "Application started after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::Application did not start within 60s"
+              docker logs refillradar
+              docker rm -f refillradar
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "--- GET /api/users/ci-smoke-test/supply-check ---"
+          # --retry-all-errors is the load-bearing flag here; see above.
+          if ! curl --fail --silent --show-error \
+                    --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
+                    localhost:8080/api/users/ci-smoke-test/supply-check -o response.json; then
+            echo "::error::Endpoint did not respond. Container logs follow:"
+            docker logs refillradar
+            docker rm -f refillradar
+            exit 1
+          fi
+
+          cat response.json; echo
+
+          # Proves more than "it booted": the fixture loaded and the engine ran.
+          if ! grep -q '"shortagesScanned":8' response.json; then
+            echo "::error::Unexpected response - expected 8 shortage records from the fixture"
+            docker logs refillradar
+            docker rm -f refillradar
+            exit 1
+          fi
+
+          echo "Smoke test passed: container builds, boots as non-root, and serves a real response."
           docker rm -f refillradar
