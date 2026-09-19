@@ -246,6 +246,18 @@ The [`Dockerfile`](Dockerfile) is a **multi-stage build**: stage 1 has Maven and
 (hundreds of MB), stage 2 copies only the JAR onto a JRE base. The build toolchain never
 reaches production. It also runs as a **non-root user**.
 
+✅ **Verified in CI.** Every PR builds this image, starts the container, and curls it — see
+the `Build container image` job. Confirmed on
+[PR #1](https://github.com/bbobbylon/myfirstrepository/pull/1):
+
+```
+Waiting for application startup...
+Application started after ~4s
+--- GET /api/users/ci-smoke-test/supply-check ---
+{"userId":"ci-smoke-test","checkedAt":"2026-09-19","source":"Recorded FDA sample data (NOT LIVE - development fixture)","medicationsChecked":0,"shortagesScanned":8,"matches":[]}
+Smoke test passed: container builds, boots as non-root, and serves a real response.
+```
+
 ### Cloud CI/CD — GitHub Actions
 
 [`.github/workflows/refillradar-ci.yml`](../../.github/workflows/refillradar-ci.yml) runs on
@@ -267,6 +279,22 @@ every push and PR touching `apps/refillradar/**`:
 >
 > The right split is **verify everywhere, publish only from main.** Building and smoke-testing
 > costs a minute on every PR; it is the *registry push* that belongs behind a branch gate.
+>
+> **And then it caught a real bug on its very first run**, which is the better half of the
+> story. The smoke test failed with `curl: (56) Recv failure: Connection reset by peer`,
+> 150ms after `docker run` returned. `--retry-connrefused` covers `ECONNREFUSED` **only**,
+> and a reset is not a refusal — while the container is up but the JVM has not bound 8080,
+> Docker's port proxy *accepts* the connection and then resets it. curl treated that as
+> fatal and never retried.
+>
+> The part worth keeping: **the same command passed when run by hand locally.** With no proxy
+> in front, the identical race produces error 7 (refused), which `--retry-connrefused` does
+> handle. The local check was green for a reason that did not transfer into a container —
+> exactly the gap the job existed to close, found only because the job had stopped skipping.
+>
+> Fixed by waiting for `Started RefillRadarApplication` in the container logs before curling,
+> adding `--retry-all-errors`, and dumping `docker logs` on every failure path so the next
+> failure is diagnosable from the job output alone.
 
 **Deploying to a host** is not wired up yet. When you add it:
 
@@ -295,7 +323,6 @@ pricing before relying on one.**
 | 4 | **In-memory storage.** | All data lost on restart. |
 | 5 | **No scheduled sync or notifications yet.** | Checks are on-demand only; the "warn me before it matters" loop is not closed. |
 | 6 | **Sample fixture is hand-written**, not a real API capture. | Clearly labelled in the file itself. Replace with a real recording. |
-| 7 | **Dockerfile not built locally** — no Docker daemon in the build environment. | Now built and smoke-tested by CI on every PR (see [PR #1](https://github.com/bbobbylon/myfirstrepository/pull/1)). Check that job before trusting the image. |
 
 ### Roadmap
 
