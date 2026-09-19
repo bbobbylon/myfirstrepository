@@ -1,0 +1,29 @@
+# RefillRadar configuration
+#
+# NOTE ON THE DEFAULT: `shortage-source` defaults to `fixture`, not `openfda`.
+# A misconfigured deployment therefore fails towards data that is OBVIOUSLY fake
+# (every response is labelled "NOT LIVE") rather than towards silently broken live
+# data. Failing loudly is worth more than failing conveniently.
+
+spring:
+  application:
+    name: refillradar
+  jackson:
+    # Serialise dates as "2026-09-19", not as an array of numbers.
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+
+refillradar:
+  # `fixture` = replay the bundled recorded response (offline, deterministic)
+  # `openfda` = call the live https://api.fda.gov/drug/shortages.json
+  shortage-source: fixture
+
+  openfda:
+    endpoint: https://api.fda.gov/drug/shortages.json
+
+logging:
+  level:
+    com.refillradar: INFO

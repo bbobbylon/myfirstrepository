@@ -16,14 +16,15 @@ documented problems in the world today.
 | # | App | Problem | Difficulty |
 |---|-----|---------|-----------|
 | 1 | [ShadeClock](proposals/01-shadeclock.md) | ~28,000 heat-linked work injuries/year; the official government app is unmaintained | Medium |
-| 2 | [RefillRadar](proposals/02-refillradar.md) | 227 active US drug shortages and climbing; patients find out at the counter | **Easiest** |
+| 2 | [RefillRadar](proposals/02-refillradar.md) → **[code](apps/refillradar/)** ✅ | 227 active US drug shortages and climbing; patients find out at the counter | **Easiest** |
 | 3 | [RenewalGuard](proposals/03-renewalguard.md) | ~70% of Medicaid terminations are paperwork failures, not ineligibility | Medium |
 | 4 | [SafeWord](proposals/04-safeword.md) | Americans 60+ lost $7.7B+ to fraud in 2025; AI voice cloning is the new vector | Medium |
 | 5 | [BirthPath](proposals/05-birthpath.md) | 1 in 3 US counties are maternity care deserts | **Hardest** |
 | — | [**Backlog**](proposals/BACKLOG.md) | Two deferred ideas, kept with research + revisit triggers | — |
 
-**Recommended first build: [RefillRadar](proposals/02-refillradar.md)** — one free public API,
-straightforward logic, and a natural fit for the Java already in this repo.
+**First build: [RefillRadar](apps/refillradar/) — v0.1 is built and working.** Java 21 +
+Spring Boot, 85 tests, runs fully offline. See [`apps/refillradar/README.md`](apps/refillradar/README.md)
+for how to run it, what it does, and an honest list of what is not finished.
 
 Each proposal page covers the evidence, the existing competition (honestly — two of the
 original candidates were cut because the space was already crowded), an intentionally small
@@ -41,6 +42,9 @@ sources could not be opened directly during research — this is documented in t
 ```
 .
 ├── README.md                    ← you are here
+├── apps/
+│   └── refillradar/             ← app #2, v0.1 built (Java 21 + Spring Boot)
+├── .github/workflows/           ← CI
 ├── proposals/                   ← the five app proposals
 │   ├── README.md                ← index, methodology, sourcing, recommendation
 │   ├── BACKLOG.md               ← deferred ideas + other domains researched
