@@ -259,6 +259,15 @@ every push and PR touching `apps/refillradar/**`:
 4. **Smoke test the image** — actually starts the container and curls it. A green unit suite
    does not prove the thing boots.
 
+> **A mistake worth learning from.** The first version of this workflow gated the container
+> job on `master`/`main`. On [PR #1](https://github.com/bbobbylon/myfirstrepository/pull/1) it
+> duly **skipped** — meaning the image would only have been verified *after* the merge it was
+> supposed to protect. Finding out your container is broken once it is already on the main
+> branch is the opposite of what CI is for.
+>
+> The right split is **verify everywhere, publish only from main.** Building and smoke-testing
+> costs a minute on every PR; it is the *registry push* that belongs behind a branch gate.
+
 **Deploying to a host** is not wired up yet. When you add it:
 
 - Push to a registry tagged with `${{ github.sha }}` — **never `latest` alone**, because you
@@ -286,7 +295,7 @@ pricing before relying on one.**
 | 4 | **In-memory storage.** | All data lost on restart. |
 | 5 | **No scheduled sync or notifications yet.** | Checks are on-demand only; the "warn me before it matters" loop is not closed. |
 | 6 | **Sample fixture is hand-written**, not a real API capture. | Clearly labelled in the file itself. Replace with a real recording. |
-| 7 | **Dockerfile not built locally** — no Docker daemon in the build environment. | Syntax is conventional but unverified. The CI workflow builds and smoke-tests it on GitHub Actions; watch that run. |
+| 7 | **Dockerfile not built locally** — no Docker daemon in the build environment. | Now built and smoke-tested by CI on every PR (see [PR #1](https://github.com/bbobbylon/myfirstrepository/pull/1)). Check that job before trusting the image. |
 
 ### Roadmap
 
