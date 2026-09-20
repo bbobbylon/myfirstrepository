@@ -1,0 +1,19 @@
+# RenewalGuard configuration
+
+spring:
+  application:
+    name: renewalguard
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8082        # 8080 RefillRadar, 8081 ShadeClock, 8082 here
+
+renewalguard:
+  # How long an address confirmation is trusted before we prompt again.
+  address-stale-after-days: 180
+
+logging:
+  level:
+    com.renewalguard: INFO
