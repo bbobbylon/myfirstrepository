@@ -1,9 +1,8 @@
 # CI for SafeWord.
 #
-# The whole suite runs with NO network and NO database: shortage data comes from a
-# recorded fixture on the classpath. That is deliberate - a build that depends on a
-# third-party API goes red when someone else's server has a bad day, and a CI signal
-# nobody trusts is worse than no CI at all.
+# Runs with no network and no database. The container job is NOT branch-gated, so the
+# image is verified before a merge rather than after it - see apps/refillradar/README.md
+# for the incident that established that rule.
 name: SafeWord CI
 
 on:
@@ -32,20 +31,16 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          # Caches ~/.m2 keyed on pom.xml, turning a ~2 minute dependency
-          # download into a few seconds on every run after the first.
           cache: 'maven'
 
       - name: Build and run tests
         run: mvn -B verify
 
       - name: Upload test reports
-        # always() so reports are published even when tests FAIL - which is
-        # precisely when you need to read them.
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-reports
+          name: safeword-surefire-reports
           path: apps/safeword/target/surefire-reports/
           retention-days: 7
 
@@ -54,51 +49,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: build          # never build an image from code that failed its tests
 
-    # Deliberately NOT gated on master/main. An earlier version of this file
-    # was, and PR #1 showed why that is backwards: the job skipped, so the
-    # image stayed unverified until AFTER the merge that was supposed to be
-    # protected by it. Finding out the container is broken once it is already
-    # on the main branch is the opposite of what CI is for.
-    #
-    # The correct split is: VERIFY everywhere, PUBLISH only from main. Building
-    # and smoke-testing on a PR costs a minute; the registry push below is what
-    # gets branch-gated when it is added.
     steps:
       - uses: actions/checkout@v4
 
       - name: Build image
-        run: |
-          docker build \
-            -t safeword:${{ github.sha }} \
-            -t safeword:latest \
-            apps/safeword
+        run: docker build -t safeword:${{ github.sha }} apps/safeword
 
-      # Deployment is intentionally NOT wired up yet. When it is, add a separate
-      # step here carrying `if: github.ref == 'refs/heads/master'` - the PUSH is
-      # what belongs behind a branch gate, not the build and smoke test above.
-      # Tag with ${{ github.sha }} - never "latest" alone, because you cannot
-      # roll back to "latest".
       - name: Smoke test the image
         run: |
           docker run -d --name safeword -p 8083:8083 safeword:${{ github.sha }}
 
-          # Wait for the JVM to actually bind the port before curling it.
-          #
-          # The first version of this step trusted `curl --retry-connrefused` alone
-          # and failed on PR #1 with `curl: (56) Recv failure: Connection reset by
-          # peer`, 150ms after `docker run` returned. The cause: --retry-connrefused
-          # covers ECONNREFUSED only, and a reset is NOT a refusal. While the
-          # container is up but the app inside has not bound 8080, Docker's port
-          # proxy ACCEPTS the connection and then resets it - so curl saw a
-          # non-retryable error and gave up instantly against an app needing ~2s.
-          #
-          # Reproduced locally against a socket that accepts-then-resets:
-          #   --retry 4 --retry-delay 1 --retry-connrefused ............ gave up in 6ms
-          #   ...same + --retry-all-errors ............................. retried, 4016ms
-          #
-          # It passed on a local machine precisely because there is no proxy in
-          # front there: the same race produces error 7 (refused), which
-          # --retry-connrefused does handle. Green locally, red in a container.
+          # Wait for the JVM to bind before curling. Do NOT rely on
+          # --retry-connrefused alone: it does not cover curl error 56 (connection
+          # reset), which is what Docker's proxy returns while the container is up but
+          # the app has not yet bound its port.
           echo "Waiting for application startup..."
           for i in $(seq 1 60); do
             if docker logs safeword 2>&1 | grep -q "Started SafeWordApplication"; then
@@ -114,13 +78,15 @@ jobs:
             sleep 1
           done
 
-          echo "--- POST /api/circles with a passphrase: MUST be refused ---"
-          # --retry-all-errors is the load-bearing flag here; see above.
+          # THE security invariant: posting a passphrase must be REFUSED.
+          # Note there is no --fail here: the expected response is a 400, which --fail
+          # would treat as a transport error and send us down the wrong branch.
+          echo "--- POST /api/circles WITH a passphrase: must be refused ---"
           if ! curl --silent --show-error \
                     --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
-                    -X POST localhost:8083/api/cases \
+                    -X POST http://localhost:8083/api/circles \
                     -H 'Content-Type: application/json' \
-                    -d '{"userId":"ci","stateCode":"CA","category":"EXPANSION_ADULT","renewalDueOn":"2027-03-01"}' \
+                    -d '{"name":"ci-smoke-test","passphrase":"bluebird","members":[]}' \
                     -o response.json; then
             echo "::error::Endpoint did not respond. Container logs follow:"
             docker logs safeword
@@ -130,15 +96,14 @@ jobs:
 
           cat response.json; echo
 
-          # Proves more than "it booted": the fixture loaded and the engine ran.
-          # THE security invariant: the server must refuse a supplied passphrase.
-          # If this ever stops refusing, SafeWord's central promise is broken.
-          if ! grep -q '"error":"passphrase_not_accepted"' response.json; then
-            echo "::error::SECURITY: the API did not refuse a supplied passphrase"
+          # Asserted by a script rather than inline, so it can be run locally - and so a
+          # bad edit cannot silently leave the wrong endpoint in place, which is exactly
+          # how an earlier version of this step shipped broken.
+          if ! python3 apps/safeword/ci/assert_passphrase_refused.py response.json; then
             docker logs safeword
             docker rm -f safeword
             exit 1
           fi
 
-          echo "Smoke test passed: container builds, boots as non-root, and serves a real response."
+          echo "Smoke test passed: container builds, boots as non-root, and refuses secrets."
           docker rm -f safeword
