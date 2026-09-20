@@ -1,0 +1,15 @@
+# SafeWord configuration
+
+spring:
+  application:
+    name: safeword
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8083        # 8080 RefillRadar, 8081 ShadeClock, 8082 RenewalGuard, 8083 here
+
+logging:
+  level:
+    com.safeword: INFO
