@@ -20,7 +20,7 @@ Read this file first. Each app then has its own detailed page:
 | 2 | **RefillRadar** ✅ *v0.1 built* | 227 active US drug shortages and rising; patients find out at the pharmacy counter | **Easiest** | [02-refillradar.md](02-refillradar.md) · [code](../apps/refillradar/) |
 | 3 | **RenewalGuard** ✅ *v0.1 built* | ~70% of Medicaid terminations are paperwork failures, not ineligibility | Medium | [03-renewalguard.md](03-renewalguard.md) · [code](../apps/renewalguard/) |
 | 4 | **SafeWord** ✅ *v0.1 built* | Americans 60+ lost $7.7B+ to fraud in 2025; AI voice cloning is the new vector | Medium | [04-safeword.md](04-safeword.md) · [code](../apps/safeword/) |
-| 5 | **BirthPath** | 1 in 3 US counties are maternity care deserts | **Hardest** | [05-birthpath.md](05-birthpath.md) |
+| 5 | **BirthPath** ✅ *v0.1 built* | 1 in 3 US counties are maternity care deserts | **Hardest** | [05-birthpath.md](05-birthpath.md) · [code](../apps/birthpath/) |
 | — | *Backlog* | Two deferred ideas + other domains researched | — | [BACKLOG.md](BACKLOG.md) |
 
 ---

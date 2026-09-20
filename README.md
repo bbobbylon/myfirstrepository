@@ -19,7 +19,7 @@ documented problems in the world today.
 | 2 | [RefillRadar](proposals/02-refillradar.md) → **[code](apps/refillradar/)** ✅ | 227 active US drug shortages and climbing; patients find out at the counter | **Easiest** |
 | 3 | [RenewalGuard](proposals/03-renewalguard.md) → **[code](apps/renewalguard/)** ✅ | ~70% of Medicaid terminations are paperwork failures, not ineligibility | Medium |
 | 4 | [SafeWord](proposals/04-safeword.md) → **[code](apps/safeword/)** ✅ | Americans 60+ lost $7.7B+ to fraud in 2025; AI voice cloning is the new vector | Medium |
-| 5 | [BirthPath](proposals/05-birthpath.md) | 1 in 3 US counties are maternity care deserts | **Hardest** |
+| 5 | [BirthPath](proposals/05-birthpath.md) → **[code](apps/birthpath/)** ✅ | 1 in 3 US counties are maternity care deserts | **Hardest** |
 | — | [**Backlog**](proposals/BACKLOG.md) | Two deferred ideas, kept with research + revisit triggers | — |
 
 **First build: [RefillRadar](apps/refillradar/) — v0.1 is built and working.** Java 21 +
@@ -46,7 +46,8 @@ sources could not be opened directly during research — this is documented in t
 │   ├── refillradar/             ← app #2, v0.1 built (Java 21 + Spring Boot)
 │   ├── shadeclock/              ← app #1, v0.1 built (Java 21 + Spring Boot)
 │   ├── renewalguard/            ← app #3, v0.1 built (Java 21 + Spring Boot)
-│   └── safeword/                ← app #4, v0.1 built (Java 21 + Spring Boot)
+│   ├── safeword/                ← app #4, v0.1 built (Java 21 + Spring Boot)
+│   └── birthpath/               ← app #5, v0.1 built (Python 3.11 + FastAPI)
 ├── .github/workflows/           ← CI
 ├── proposals/                   ← the five app proposals
 │   ├── README.md                ← index, methodology, sourcing, recommendation
