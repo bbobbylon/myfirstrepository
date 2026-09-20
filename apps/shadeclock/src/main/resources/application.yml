@@ -1,0 +1,30 @@
+# ShadeClock configuration
+#
+# NOTE ON THE DEFAULT: `forecast-source` defaults to `fixture`, not `nws`. A
+# misconfigured deployment therefore fails towards data that is OBVIOUSLY synthetic
+# (every response is labelled "NOT LIVE") rather than towards silently wrong live
+# scheduling. Same principle as RefillRadar: fail loudly, not conveniently.
+
+spring:
+  application:
+    name: shadeclock
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8081        # 8080 belongs to RefillRadar, so both can run side by side
+
+shadeclock:
+  # `fixture` = deterministic synthetic summer day (offline, reproducible)
+  # `nws`     = live https://api.weather.gov
+  forecast-source: fixture
+
+  nws:
+    base-url: https://api.weather.gov
+    # NWS asks API callers to identify themselves. Replace before any real use.
+    user-agent: "(shadeclock, contact@example.com)"
+
+logging:
+  level:
+    com.shadeclock: INFO

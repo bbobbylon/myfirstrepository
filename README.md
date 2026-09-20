@@ -15,7 +15,7 @@ documented problems in the world today.
 
 | # | App | Problem | Difficulty |
 |---|-----|---------|-----------|
-| 1 | [ShadeClock](proposals/01-shadeclock.md) | ~28,000 heat-linked work injuries/year; the official government app is unmaintained | Medium |
+| 1 | [ShadeClock](proposals/01-shadeclock.md) → **[code](apps/shadeclock/)** ✅ | ~28,000 heat-linked work injuries/year; the official government app is unmaintained | Medium |
 | 2 | [RefillRadar](proposals/02-refillradar.md) → **[code](apps/refillradar/)** ✅ | 227 active US drug shortages and climbing; patients find out at the counter | **Easiest** |
 | 3 | [RenewalGuard](proposals/03-renewalguard.md) | ~70% of Medicaid terminations are paperwork failures, not ineligibility | Medium |
 | 4 | [SafeWord](proposals/04-safeword.md) | Americans 60+ lost $7.7B+ to fraud in 2025; AI voice cloning is the new vector | Medium |
@@ -43,7 +43,8 @@ sources could not be opened directly during research — this is documented in t
 .
 ├── README.md                    ← you are here
 ├── apps/
-│   └── refillradar/             ← app #2, v0.1 built (Java 21 + Spring Boot)
+│   ├── refillradar/             ← app #2, v0.1 built (Java 21 + Spring Boot)
+│   └── shadeclock/              ← app #1, v0.1 built (Java 21 + Spring Boot)
 ├── .github/workflows/           ← CI
 ├── proposals/                   ← the five app proposals
 │   ├── README.md                ← index, methodology, sourcing, recommendation
