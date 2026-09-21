@@ -21,6 +21,20 @@ refillradar:
   # `openfda` = call the live https://api.fda.gov/drug/shortages.json
   shortage-source: fixture
 
+  # `log`   = write alerts to the application log and report them as NOT delivered
+  # `email` = send via SMTP (requires spring.mail.* to be configured)
+  # Defaults to `log` so a deployment without mail configured produces visible output
+  # rather than silently notifying nobody.
+  alert-channel: log
+
+  mail:
+    from: alerts@refillradar.invalid
+
+  sync:
+    # Nightly at 03:00. Alerts composed overnight are read in the morning, when a
+    # pharmacy or prescriber can actually be called.
+    cron: "0 0 3 * * *"
+
   openfda:
     endpoint: https://api.fda.gov/drug/shortages.json
 

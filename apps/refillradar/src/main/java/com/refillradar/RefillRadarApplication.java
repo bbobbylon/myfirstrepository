@@ -5,6 +5,7 @@ import java.time.Clock;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Application entry point for RefillRadar.
@@ -16,10 +17,17 @@ import org.springframework.context.annotation.Bean;
  * <p>Run it with {@code ./mvnw spring-boot:run}, or as a JAR with
  * {@code java -jar target/refillradar-0.1.0-SNAPSHOT.jar}.
  *
+ * <p><b>v0.2 closes the loop.</b> v0.1 could answer "is my medication short?" when asked,
+ * but could not tell anyone - which meant it did not actually deliver lead time, the one
+ * thing it promises. {@link com.refillradar.sync.ShortageSyncJob} now runs nightly and
+ * speaks first.
+ *
  * @see com.refillradar.matching.ShortageMatcher the core engine
  * @see com.refillradar.shortage.ShortageSource where shortage data comes from
+ * @see com.refillradar.sync.ShortageSyncJob the nightly sync that closes the loop
  */
 @SpringBootApplication
+@EnableScheduling
 public class RefillRadarApplication {
 
     /**

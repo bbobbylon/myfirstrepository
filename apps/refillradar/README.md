@@ -4,8 +4,9 @@
 *your* medication list and warns you weeks before a refill fails — while there is still time
 to do something about it.
 
-> **Status: v0.1 — working core engine.** 85 tests passing. Runs offline. Not production
-> ready: no authentication, no database, no live API verification. See [Limitations](#limitations).
+> **Status: v0.2 — the alerting loop is closed.** 105 tests passing. Runs offline. Not
+> production ready: no authentication, no database, no live API verification. See
+> [Limitations](#limitations).
 >
 > **Not medical advice.** RefillRadar reports entries in a federal database. It never
 > suggests alternative medicines. Always speak to your pharmacist or prescriber.
@@ -34,6 +35,60 @@ than an inconvenience.
 
 ---
 
+## What v0.2 added: the app now speaks first
+
+v0.1 could answer *"is my medication short?"* when asked. It could not **tell** anyone —
+which meant it never actually delivered lead time, the one thing it promises. v0.2 closes
+that loop with a nightly sync.
+
+```bash
+curl -X POST localhost:8080/api/admin/sync
+```
+
+Real output from three consecutive runs:
+
+```
+run 1 (no contact route on file)
+  Fetched 8 records... Alerts sent: 0 ... 1 user(s) needed an alert but have no contact route.
+
+run 2 (after adding an email)
+  sent: 1   suppressed: 0
+
+run 3 (nothing changed)
+  sent: 0   suppressed: 1        <- de-duplication
+```
+
+### Four decisions in that loop
+
+**1. A failed fetch is never an all-clear.** `ShortageFetchException`'s docs always said a
+failure must leave previous data in place — until v0.2 that was only a comment, because
+there was nothing to leave. Now `ShortageCache` holds the last good feed, a failed sync
+does **not** clear it and does **not** run an alerting pass over empty data, and the
+response says outright: *"This is NOT an all-clear."*
+
+**2. An empty feed and a failed fetch are different things.** "The FDA says nothing is
+short" is a success. "We couldn't reach the FDA" is not. Conflating them is the whole
+failure mode this app exists to avoid, and there's a test for each.
+
+**3. De-duplication, but not at the cost of new information.** Shortages last months. A
+nightly job with no memory would email the same person every night until they stopped
+reading — *an ignored alert is worse than none, because it still implies someone is
+watching.* But a naive ledger is also wrong: **escalation gets through.** Going from `HIGH`
+to `CRITICAL` means days left rather than weeks, and suppressing that would be the worst
+possible behaviour.
+
+**4. Staleness is visible.** A sync failing quietly for a week is the failure most likely to
+go unnoticed — everything still *responds*, just with old data. `GET /api/sync/status`
+exists so monitoring can watch it.
+
+### Why 03:00
+
+Alerts composed overnight are read in the morning, when a pharmacy or prescriber can
+actually be called. An alert at 9pm is one the reader can do nothing about for twelve
+hours — that converts useful information into a night of worry.
+
+---
+
 ## Quick start
 
 **Prerequisites:** JDK 21+, Maven 3.9+ (or use the wrapper). No database. No network. No API key.
@@ -42,7 +97,7 @@ than an inconvenience.
 git clone https://github.com/bbobbylon/myfirstrepository.git
 cd myfirstrepository/apps/refillradar
 
-mvn test          # 85 tests, runs fully offline, ~10 seconds
+mvn test          # 105 tests, runs fully offline, ~10 seconds
 mvn spring-boot:run
 ```
 
@@ -114,6 +169,10 @@ patient's calendar, not the FDA's wording.** That is the whole idea in one respo
 | `DELETE` | `/api/medications/{id}` | Remove a medication |
 | `GET` | `/api/users/{userId}/supply-check` | Run a check — the main endpoint |
 | `GET` | `/api/debug/normalize?name=X` | Diagnostic: how a drug name was interpreted |
+| `POST` | `/api/admin/sync` | **v0.2** — run the nightly sync now |
+| `GET` | `/api/sync/status` | **v0.2** — age of the cached feed, for monitoring |
+| `POST` | `/api/users/{userId}/contact` | **v0.2** — where alerts should go |
+| `GET` | `/api/users/{userId}/contact` | **v0.2** — whether the user is reachable at all |
 
 That last endpoint exists because of the failure mode this app most needs to avoid. If the
 normaliser has never heard of a brand, nothing matches, and the app looks like it is working
@@ -321,14 +380,30 @@ pricing before relying on one.**
 | 2 | **Brand mapping is a 20-entry hand-seeded list.** The real answer is RxNorm (NIH/NLM). | Unknown brands produce **false negatives** — the dangerous direction. Mitigated by the `/debug/normalize` endpoint. |
 | 3 | **No authentication.** `userId` is passed in the clear and trusted. | Anyone can read anyone's list by guessing an ID. A medication list is sensitive health data. **Must be fixed before exposure.** |
 | 4 | **In-memory storage.** | All data lost on restart. |
-| 5 | **No scheduled sync or notifications yet.** | Checks are on-demand only; the "warn me before it matters" loop is not closed. |
+| 5 | ~~No scheduled sync or notifications~~ — **resolved in v0.2.** | Nightly sync, de-duplicated alerts and a manual trigger now exist. |
 | 6 | **Sample fixture is hand-written**, not a real API capture. | Clearly labelled in the file itself. Replace with a real recording. |
+| 7 | **Email delivery never tested against a real SMTP server.** | No mail relay reachable from the build environment. Defaults to `alert-channel=log`, which reports `delivered: false` rather than pretending. Check deliverability and spam placement on first live run — a shortage warning in a junk folder is a warning nobody receives. |
+| 8 | **Alert ledger is in memory.** | A restart re-sends alerts already delivered. Goes away with limitation 4. |
 
 ### Roadmap
 
-- **v0.2** — RxNorm integration (kills limitation 2); PostgreSQL via Spring Data JPA (4);
-  nightly `@Scheduled` sync + email alerts (5)
-- **v0.3** — authentication and encryption at rest (3); SMS via Twilio; real recorded fixture (6)
+**v0.2 — delivered the alerting loop, and only that.** Worth being precise: the original
+v0.2 plan listed three things and one of them shipped.
+
+| Planned for v0.2 | Status |
+|---|---|
+| Nightly `@Scheduled` sync + email alerts | ✅ **done** |
+| RxNorm integration | ❌ **not done** — moved to v0.3 |
+| PostgreSQL via Spring Data JPA | ❌ **not done** — no Docker daemon in the build environment, so it could not be verified against real Postgres. Shipping JPA entities tested only against H2 would repeat the exact mistake documented in the CI section below: green locally for a reason that does not transfer. |
+
+- **v0.3** — RxNorm (2); PostgreSQL, which also fixes the in-memory ledger (4, 8);
+  authentication and encryption at rest (3)
+- **v0.4** — SMS via Twilio; real recorded fixture (6)
+
+**On SMS:** RefillRadar's users skew older, and email is the channel that group is least
+reliably on. SMS would reach more of them — but it carries per-message cost and US A2P 10DLC
+registration, which is procurement rather than code. Email first is the honest sequencing,
+not a claim of parity.
 - **Explicit non-goals** — suggesting alternative medicines (a clinical decision), pharmacy
   stock levels, anything that turns this into a regulated medical device
 
@@ -353,7 +428,7 @@ apps/refillradar/
     ├── main/resources/
     │   ├── application.yml
     │   └── fixtures/openfda-shortages-sample.json
-    └── test/java/        85 tests, no network, no database
+    └── test/java/        105 tests, no network, no database
 ```
 
 Every public class and method carries Javadoc explaining **why it exists**, not just what it

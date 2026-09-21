@@ -1,0 +1,135 @@
+package com.refillradar.alert;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+import org.springframework.stereotype.Component;
+
+import com.refillradar.domain.ShortageMatch;
+import com.refillradar.domain.SupplyRisk;
+
+/**
+ * Remembers what we have already told each user, so a nightly job does not repeat itself.
+ *
+ * <h2>The failure this exists to prevent</h2>
+ * Shortages last months. A nightly sync with no memory would email the same person about the
+ * same shortage every night for a quarter. They would stop reading it by week two - and an
+ * ignored alert is worse than no alert, because it still carries the implication that
+ * someone is watching.
+ *
+ * <p>This is the same lesson RenewalGuard's reminder ladder encodes: <b>escalation, not
+ * repetition.</b> v0.1 never hit it because checks were on demand only; the moment a
+ * scheduler exists, de-duplication stops being optional.
+ *
+ * <h2>The subtlety: de-duplication must not suppress NEW information</h2>
+ * A naive ledger says "already told them, stay quiet forever". That is wrong. If a user's
+ * situation moves from {@link SupplyRisk#MEDIUM} to {@link SupplyRisk#CRITICAL}, that is
+ * genuinely new and urgent - they have days left now, not weeks. Suppressing it would be the
+ * worst possible behaviour, so {@link #shouldSend} re-alerts on escalation.
+ *
+ * <p>It also re-alerts after {@link #REPEAT_AFTER}, so a months-long shortage produces an
+ * occasional reminder rather than one message in January and silence until March.
+ */
+@Component
+public class AlertLedger {
+
+    /** How long before the same unchanged alert may be sent again. */
+    public static final Duration REPEAT_AFTER = Duration.ofDays(14);
+
+    private final Map<String, Entry> sent = new ConcurrentHashMap<>();
+    private final Clock clock;
+
+    /**
+     * @param clock injected so repeat windows are testable without waiting a fortnight
+     */
+    public AlertLedger(Clock clock) {
+        this.clock = clock;
+    }
+
+    /**
+     * Whether this match warrants sending now.
+     *
+     * @param match the match under consideration
+     * @return {@code true} if it is new, has escalated, or the repeat window has elapsed
+     */
+    public boolean shouldSend(ShortageMatch match) {
+        Entry previous = sent.get(keyFor(match));
+        if (previous == null) {
+            return true;
+        }
+        // Escalation is new information, not a repeat. Days left, not weeks.
+        if (isMoreUrgent(match.risk(), previous.risk())) {
+            return true;
+        }
+        return Duration.between(previous.sentAt(), clock.instant()).compareTo(REPEAT_AFTER) > 0;
+    }
+
+    /**
+     * Records that an alert was sent, so the next run knows.
+     *
+     * @param match the match that was alerted on
+     */
+    public void record(ShortageMatch match) {
+        sent.put(keyFor(match), new Entry(match.risk(), clock.instant()));
+    }
+
+    /**
+     * The last time we alerted on this match, if ever.
+     *
+     * @param match the match to look up
+     * @return the previous entry, or empty
+     */
+    public Optional<Entry> lastSent(ShortageMatch match) {
+        return Optional.ofNullable(sent.get(keyFor(match)));
+    }
+
+    /**
+     * Clears the ledger. Test support only.
+     */
+    public void clear() {
+        sent.clear();
+    }
+
+    /**
+     * Builds the identity of an alert.
+     *
+     * <p>Keyed on user, medication and the matched FDA product - not on the match object.
+     * The same underlying shortage produces a fresh {@code ShortageMatch} on every sync, so
+     * anything object-identity-based would de-duplicate nothing at all.
+     *
+     * @param match the match
+     * @return the ledger key
+     */
+    private String keyFor(ShortageMatch match) {
+        return match.medication().userId() + "|" + match.medication().id() + "|"
+                + match.shortage().displayName();
+    }
+
+    /**
+     * Whether one risk level is more urgent than another.
+     *
+     * <p>Compares by ordinal, which works because {@link SupplyRisk} is declared
+     * most-urgent-first. That is a real coupling between two files, so it is stated here and
+     * asserted in the tests rather than left as a quiet assumption.
+     *
+     * @param candidate the new risk
+     * @param previous  the risk we last alerted at
+     * @return {@code true} if the candidate is more urgent
+     */
+    private boolean isMoreUrgent(SupplyRisk candidate, SupplyRisk previous) {
+        return candidate.ordinal() < previous.ordinal();
+    }
+
+    /**
+     * One recorded alert.
+     *
+     * @param risk   the urgency at the time it was sent
+     * @param sentAt when it was sent
+     */
+    public record Entry(SupplyRisk risk, Instant sentAt) {
+    }
+}

@@ -18,6 +18,10 @@ import com.refillradar.domain.ShortageMatch;
 import com.refillradar.domain.ShortageRecord;
 import com.refillradar.matching.DrugNameNormalizer;
 import com.refillradar.matching.ShortageMatcher;
+import com.refillradar.store.ContactRepository;
+import com.refillradar.sync.ShortageCache;
+import com.refillradar.sync.ShortageSyncJob;
+import com.refillradar.sync.SyncOutcome;
 import com.refillradar.refill.RefillProjector;
 import com.refillradar.shortage.ShortageSource;
 import com.refillradar.store.MedicationRepository;
@@ -46,6 +50,9 @@ public class RefillRadarController {
     private final ShortageSource shortageSource;
     private final RefillProjector projector;
     private final DrugNameNormalizer normalizer;
+    private final ShortageSyncJob syncJob;
+    private final ShortageCache cache;
+    private final ContactRepository contacts;
 
     /**
      * @param repository     medication storage
@@ -53,17 +60,26 @@ public class RefillRadarController {
      * @param shortageSource where FDA data comes from
      * @param projector      supplies the evaluation date
      * @param normalizer     used to warn about unrecognised brand names
+     * @param syncJob        the nightly sync, exposed for manual triggering
+     * @param cache          last-known-good feed, for the freshness note
+     * @param contacts       where alerts can be sent
      */
     public RefillRadarController(MedicationRepository repository,
                                  ShortageMatcher matcher,
                                  ShortageSource shortageSource,
                                  RefillProjector projector,
-                                 DrugNameNormalizer normalizer) {
+                                 DrugNameNormalizer normalizer,
+                                 ShortageSyncJob syncJob,
+                                 ShortageCache cache,
+                                 ContactRepository contacts) {
         this.repository = repository;
         this.matcher = matcher;
         this.shortageSource = shortageSource;
         this.projector = projector;
         this.normalizer = normalizer;
+        this.syncJob = syncJob;
+        this.cache = cache;
+        this.contacts = contacts;
     }
 
     /**
@@ -165,6 +181,100 @@ public class RefillRadarController {
                 name,
                 List.copyOf(normalizer.normalize(name)),
                 normalizer.recognisesBrand(name));
+    }
+
+    /**
+     * Runs the nightly sync immediately.
+     *
+     * <p>Always give a scheduled job a manual trigger. Without one, every test cycle costs
+     * you a day and you end up testing in production - which for this job would mean
+     * emailing real people to find out whether the code works.
+     *
+     * @return what the sync did
+     */
+    @PostMapping("/admin/sync")
+    public SyncOutcome triggerSync() {
+        return syncJob.runSync();
+    }
+
+    /**
+     * Reports the age of the cached shortage feed.
+     *
+     * <p>Separate from the supply check so monitoring can watch it. A sync that has been
+     * quietly failing for a week is the failure mode most likely to go unnoticed, because
+     * everything still <em>responds</em> - it just responds with old data.
+     *
+     * @return the cache's freshness
+     */
+    @GetMapping("/sync/status")
+    public SyncStatus syncStatus() {
+        return new SyncStatus(
+                cache.current().isPresent(),
+                cache.isStale(),
+                cache.freshnessNote(),
+                cache.current().map(snapshot -> snapshot.records().size()).orElse(0),
+                cache.current().map(snapshot -> snapshot.fetchedAt().toString()).orElse(null));
+    }
+
+    /**
+     * Records where a user's alerts should be sent.
+     *
+     * @param userId  the user
+     * @param request the contact details
+     * @return {@code 204 No Content}
+     */
+    @PostMapping("/users/{userId}/contact")
+    public ResponseEntity<Void> setContact(@PathVariable String userId,
+                                           @RequestBody ContactRequest request) {
+        contacts.setEmail(userId, request.email());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Where a user's alerts would go.
+     *
+     * @param userId the user
+     * @return reachability, so a UI can prompt for an address before promising alerts
+     */
+    @GetMapping("/users/{userId}/contact")
+    public ContactStatus contactStatus(@PathVariable String userId) {
+        return new ContactStatus(
+                contacts.isReachable(userId),
+                contacts.findEmail(userId).orElse(null),
+                contacts.isReachable(userId) ? null
+                        : "We have no way to reach you, so you will NOT receive alerts even "
+                                + "if one of your medications goes into shortage.");
+    }
+
+    /**
+     * Where alerts are sent.
+     *
+     * @param email the address
+     */
+    public record ContactRequest(String email) {
+    }
+
+    /**
+     * Whether a user can actually be alerted.
+     *
+     * @param reachable whether a contact route exists
+     * @param email     the address, if any
+     * @param warning   what it means if there is none
+     */
+    public record ContactStatus(boolean reachable, String email, String warning) {
+    }
+
+    /**
+     * The age and size of the cached shortage feed.
+     *
+     * @param hasData       whether any fetch has ever succeeded
+     * @param stale         whether the data is old enough to warn about
+     * @param note          plain-language freshness description
+     * @param recordCount   how many records are cached
+     * @param lastFetchedAt when the last successful fetch happened
+     */
+    public record SyncStatus(boolean hasData, boolean stale, String note,
+                             int recordCount, String lastFetchedAt) {
     }
 
     /**

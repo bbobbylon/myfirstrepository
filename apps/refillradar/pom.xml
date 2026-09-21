@@ -44,6 +44,13 @@
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
 
+    <!-- SMTP delivery for v0.2 alerts. Only active when refillradar.alert-channel=email,
+         so a deployment without mail configured still starts and logs alerts instead. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+
     <!-- JUnit 5, AssertJ, Mockito, MockMvc. Test scope only - never shipped. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
