@@ -6,18 +6,11 @@ import java.util.Optional;
 /**
  * The heat-safety requirements that apply in one jurisdiction.
  *
- * <h2>Why a patchwork needs an abstraction</h2>
- * As of 2026 there is <b>no finalised federal heat standard</b>. OSHA proposed one in August
- * 2024; the rule stalled after the January 2025 regulatory freeze with no target date. In
- * its place sits a Heat National Emphasis Program (targeted inspections on days the NWS
- * issues a heat advisory) plus roughly seven states with their own enforceable standards -
- * commonly counted as California, Colorado, Maryland, Minnesota, Nevada, Oregon and
- * Washington.
- *
- * <p>A contractor operating across three states therefore faces three rulebooks and no
- * federal baseline. That is precisely the sort of messy conditional bookkeeping software
- * handles well and tired humans handle badly, and it is the reason this interface exists
- * rather than a single hard-coded rule list.
+ * <p>As of 2026 there is <b>no finalised federal heat standard</b> - OSHA's proposed rule
+ * stalled after the January 2025 regulatory freeze. In its place: a Heat National Emphasis
+ * Program plus roughly seven states with their own standards (CA, CO, MD, MN, NV, OR, WA).
+ * A contractor working three states faces three rulebooks and no federal floor, which is why
+ * this is an interface rather than one hard-coded list.
  *
  * <p><b>Every implementation must declare a {@link VerificationStatus}.</b> See that enum
  * for why the doubt is modelled rather than hidden.

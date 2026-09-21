@@ -21,21 +21,15 @@ import com.refillradar.domain.ShortageRecord;
  * source, so a misconfigured deployment fails towards <em>obviously fake</em> data rather
  * than towards silently broken live data.
  *
- * <h2>Two openFDA behaviours worth knowing before you debug this</h2>
- * <ol>
- *   <li><b>{@code limit} defaults to 1.</b> Omit it and the API returns a single record
- *       while looking entirely successful. This is a classic first-time trap: the app
- *       appears to work and protects almost nobody.</li>
- *   <li><b>{@code limit} caps at 100.</b> With 200+ active shortages, a single call cannot
- *       return the full feed, so {@link #fetchCurrentShortages()} pages with {@code skip}
- *       until a short page arrives.</li>
- * </ol>
+ * <p>Two openFDA behaviours worth knowing before debugging this: {@code limit} <b>defaults
+ * to 1</b> (omit it and the API returns one record while looking successful), and
+ * <b>caps at 100</b> - so with 200+ active shortages {@link #fetchCurrentShortages()} pages
+ * with {@code skip} until a short page arrives.
  *
- * <p><b>Not verified against the live API.</b> The environment this was written in blocks
- * {@code api.fda.gov} at the egress proxy, so this class is built from openFDA's published
- * documentation and exercised against recorded fixtures. Treat the first live run as part
- * of the work: confirm field names, date formats and the {@code status} vocabulary, and
- * extend {@code ShortageStatus.fromFdaStatus} with any value it does not recognise.
+ * <p>⚠️ <b>Not verified against the live API.</b> This environment blocks {@code api.fda.gov}
+ * at the egress proxy, so the class is built from openFDA's published documentation and
+ * exercised against recorded fixtures. Treat the first live run as part of the work: confirm
+ * field names, date formats and the {@code status} vocabulary.
  */
 @Component
 @ConditionalOnProperty(name = "refillradar.shortage-source", havingValue = "openfda")

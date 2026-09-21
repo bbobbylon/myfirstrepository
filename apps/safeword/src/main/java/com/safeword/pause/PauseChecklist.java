@@ -7,26 +7,13 @@ import org.springframework.stereotype.Service;
 /**
  * The full-screen, unskippable checklist shown when someone presses the pause button.
  *
- * <h2>Urgency is the attack; friction is the countermeasure</h2>
- * Every one of these scams runs on manufactured time pressure - bail money now, the warrant
- * is being issued, don't tell anyone. The pressure is not incidental to the scam; it <em>is</em>
- * the scam, because it prevents the one thing that reliably defeats it: stopping to check.
+ * <p>Manufactured urgency <em>is</em> the scam - it prevents the one thing that defeats it,
+ * stopping to check. So this interaction is deliberately slow: one button, a screen that
+ * cannot be dismissed in a hurry, stating facts that hold whatever the caller is saying.
  *
- * <p>So SafeWord's core interaction is deliberately slow. One button produces a screen that
- * cannot be dismissed in a hurry, stating a handful of facts that are true regardless of what
- * the caller is saying.
- *
- * <h2>Design constraints that outrank anything technical</h2>
- * The reader may be 78, may have reduced vision, and <b>will be frightened</b>. That is not an
- * edge case, it is the design centre:
- * <ul>
- *   <li>Minimum 18pt type, very high contrast</li>
- *   <li>One idea per line; no paragraphs</li>
- *   <li>No jargon, no onboarding carousel, no dark patterns</li>
- *   <li>Nothing that requires fine motor control or fast reading</li>
- * </ul>
- * If only one thing in this app is built well, it should be this screen. An accessible
- * interface is not a nice-to-have here - it <em>is</em> the product.
+ * <p>Client rendering constraints, which outrank anything technical: the reader may be 78,
+ * may have reduced vision, and <b>will be frightened</b>. Minimum 18pt type, high contrast,
+ * one idea per line, no jargon, nothing needing fine motor control or fast reading.
  */
 @Service
 public class PauseChecklist {
@@ -34,9 +21,8 @@ public class PauseChecklist {
     /**
      * The facts shown on the pause screen, in display order.
      *
-     * <p>Each is short, absolute, and true independent of what the caller claims. They are
-     * deliberately phrased as statements about the world rather than instructions about the
-     * caller, so they hold even if the person half-believes the story.
+     * <p>Phrased as statements about the world rather than instructions about the caller, so
+     * they hold even if the person half-believes the story.
      *
      * @return the checklist items, never {@code null}
      */

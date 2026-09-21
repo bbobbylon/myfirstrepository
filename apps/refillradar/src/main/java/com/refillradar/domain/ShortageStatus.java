@@ -5,27 +5,14 @@ import java.util.Locale;
 /**
  * The lifecycle state of a drug shortage as reported by the FDA.
  *
- * <p>The openFDA {@code /drug/shortages.json} endpoint exposes a free-text {@code status}
- * field. We deliberately do <em>not</em> bind that string directly into our logic, because
- * a spelling change at the FDA would then silently alter this application's behaviour.
- * Instead {@link #fromFdaStatus(String)} maps the incoming text onto this closed set.
+ * <p>openFDA exposes {@code status} as free text. {@link #fromFdaStatus(String)} maps it
+ * onto this closed set, so a spelling change at the FDA cannot silently alter behaviour.
  *
- * <h2>Why {@link #UNKNOWN} counts as active</h2>
- * The single most important design decision in this class is what happens when the FDA
- * sends us a status string we do not recognise. There are two options:
- *
- * <ul>
- *   <li><b>Treat it as resolved.</b> The user gets no alert. If we were wrong, they walk
- *       into the pharmacy believing everything is fine and discover it is not. The app has
- *       actively made them worse off than having no app, because it created false
- *       confidence.</li>
- *   <li><b>Treat it as potentially active.</b> The user gets an alert flagged as
- *       uncertain. If we were wrong, they ask their pharmacist an unnecessary question.</li>
- * </ul>
- *
- * <p>We choose the second. In a safety-adjacent tool the costs of the two error types are
- * wildly asymmetric, so we fail loudly rather than silently. {@link #isPotentiallyActive()}
- * encodes that choice in one place.
+ * <p><b>{@link #UNKNOWN} counts as active.</b> An unrecognised status treated as resolved
+ * sends no alert, and a wrong guess there means someone reaches the pharmacy believing all
+ * is well - false confidence the app itself created. Treated as active, a wrong guess costs
+ * one unnecessary question to a pharmacist. The error costs are wildly asymmetric, so
+ * {@link #isPotentiallyActive()} fails loudly rather than silently.
  */
 public enum ShortageStatus {
 

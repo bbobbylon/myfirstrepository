@@ -80,9 +80,8 @@ public class SafeWordController {
      * Creates a family circle.
      *
      * <p>Rejects the request outright if it carries anything in the {@code passphrase} field.
-     * The field exists in the request type <em>only</em> so that a client sending one gets a
-     * clear explanation rather than having it silently ignored - and so the refusal is
-     * testable.
+     * That field exists in the request type only so a client sending one gets a clear
+     * explanation instead of silence - and so the refusal is testable.
      *
      * @param request the circle to create
      * @return {@code 201 Created}, or {@code 400} with an explanation if a secret was sent
@@ -174,9 +173,9 @@ public class SafeWordController {
     /**
      * Raises a request for help to a circle's responders.
      *
-     * <p>v0.1 composes the messages and reports who would be contacted; it does not actually
-     * send push or SMS. That is stated in the response rather than implied, because a person
-     * who believes help is coming and is wrong is worse off than one who knows it is not.
+     * <p>v0.1 composes the messages and reports who would be contacted; it does not send
+     * push or SMS. The response says so, because someone who wrongly believes help is coming
+     * is worse off than someone who knows it is not.
      *
      * @param circleId  the circle
      * @param request   what the call is about

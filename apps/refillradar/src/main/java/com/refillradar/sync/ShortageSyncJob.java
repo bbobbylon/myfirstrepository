@@ -16,22 +16,15 @@ import com.refillradar.shortage.ShortageSource;
 /**
  * The nightly job: fetch the FDA feed, cache it, and alert whoever is affected.
  *
- * <p>This is the piece that turns RefillRadar from a lookup tool into an early-warning
- * system. The product's whole premise is lead time - "your drug is short and your last pill
- * is in eleven days" - and lead time only exists if the application speaks first.
+ * <p>What turns RefillRadar from a lookup tool into an early-warning system: lead time only
+ * exists if the application speaks first. It runs at 03:00 so alerts are read in the morning
+ * when a pharmacy or prescriber can be called - a 9pm alert is a night of worry the reader
+ * can act on twelve hours later.
  *
- * <h2>Why it runs at 03:00</h2>
- * Alerts composed overnight are read in the morning, when a pharmacy or prescriber can
- * actually be called. An alert that arrives at 9pm is one the reader can do nothing about
- * for twelve hours, which converts useful information into a night of worry.
- *
- * <h2>Failure behaviour, which is the interesting part</h2>
- * A failed fetch does <b>not</b> clear {@link ShortageCache}, and does not cause an alerting
- * pass over empty data. Both would be ways of telling users "nothing is short" because our
- * network was down - the exact false reassurance this application exists to prevent.
- *
- * <p>Instead the failure is logged, the previous feed stays in place with its age visible,
- * and the next run tries again.
+ * <p>Failure behaviour is the interesting part: a failed fetch does <b>not</b> clear
+ * {@link ShortageCache} and does not run an alerting pass over empty data. Either would tell
+ * users "nothing is short" because our network was down. The failure is logged, the previous
+ * feed stays with its age visible, and the next run tries again.
  */
 @Component
 public class ShortageSyncJob {

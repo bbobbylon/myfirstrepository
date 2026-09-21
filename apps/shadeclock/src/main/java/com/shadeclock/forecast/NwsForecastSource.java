@@ -25,18 +25,12 @@ import com.shadeclock.heat.HourlyConditions;
  * misconfigured deployment fails towards obviously synthetic data rather than towards
  * silently broken live data.
  *
- * <h2>How api.weather.gov works</h2>
- * It is a two-step lookup, which is the part most first implementations get wrong:
- * <ol>
- *   <li>{@code GET /points/{lat},{lon}} returns metadata including a
- *       {@code properties.forecastHourly} URL specific to that grid square.</li>
- *   <li>{@code GET} that URL returns {@code properties.periods[]}, each with
- *       {@code startTime}, {@code temperature}, {@code temperatureUnit} and
- *       {@code relativeHumidity.value}.</li>
- * </ol>
- *
- * <p>The API is free and needs no key. It does ask callers to send an identifying
- * {@code User-Agent}; requests without one may be rejected.
+ * <p>api.weather.gov is a <b>two-step lookup</b>, the part most first implementations get
+ * wrong: {@code GET /points/{lat},{lon}} returns a {@code properties.forecastHourly} URL for
+ * that grid square, and a {@code GET} on that returns {@code properties.periods[]} carrying
+ * {@code startTime}, {@code temperature}, {@code temperatureUnit} and
+ * {@code relativeHumidity.value}. Free, no key, but an identifying {@code User-Agent} is
+ * expected and requests without one may be rejected.
  *
  * <p><b>⚠️ Never exercised against the live API.</b> The build environment's egress policy
  * blocks {@code api.weather.gov}, so this class is written from the published documentation

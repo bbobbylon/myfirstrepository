@@ -5,15 +5,11 @@ import java.time.LocalDate;
 /**
  * One person's enrolment in one benefit programme, with the dates a renewal turns on.
  *
- * <h2>What this class deliberately does NOT hold</h2>
- * No Social Security number. No income figure. No household composition. No immigration
- * status. RenewalGuard tracks <em>when</em> a renewal is due and <em>what paperwork</em> it
- * needs - it never evaluates whether someone qualifies, so it has no business holding the
- * data an eligibility determination would require.
- *
- * <p>That is a privacy decision before it is a legal one. This application's users are, by
- * definition, people with very little margin: a breach here falls on the population least
- * able to absorb it. The most secure data is the data you chose not to collect.
+ * <p><b>No SSN, income, household composition or immigration status.</b> This tracks
+ * <em>when</em> a renewal is due and <em>what paperwork</em> it needs; it never evaluates
+ * whether someone qualifies, so it has no business holding eligibility data. A breach here
+ * would fall on the population least able to absorb it, and the most secure data is the data
+ * you chose not to collect.
  *
  * @param id                  stable identifier
  * @param userId              the owner

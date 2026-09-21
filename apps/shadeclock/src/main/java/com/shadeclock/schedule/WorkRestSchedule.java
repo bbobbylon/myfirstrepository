@@ -9,11 +9,9 @@ import com.shadeclock.heat.HourlyConditions;
 /**
  * A crew's heat plan for one day: the timetable, the warnings, and the caveats.
  *
- * <h2>Why this returns a timetable rather than a risk level</h2>
- * The official OSHA-NIOSH app outputs a risk colour. "High risk today" is not actionable -
- * it tells a supervisor something they can already feel. "10 minutes rest in shade at the
- * end of each hour from 11:00, rotating in two groups" is a decision they can carry out.
- * Converting weather into a schedule is the entire product.
+ * <p>A timetable, not a risk colour. "High risk today" tells a supervisor what they can
+ * already feel; "10 minutes rest in shade at the end of each hour from 11:00" is a decision
+ * they can carry out. Converting weather into a schedule is the entire product.
  *
  * @param date                   the day this plan covers
  * @param crewName               the crew it was built for

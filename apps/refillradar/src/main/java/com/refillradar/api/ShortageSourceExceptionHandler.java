@@ -15,25 +15,15 @@ import com.refillradar.shortage.ShortageFetchException;
 /**
  * Turns a failed shortage fetch into an honest error response instead of a bare 500.
  *
- * <h2>Why this class earns its place</h2>
- * Added after a real failure during development. With
- * {@code refillradar.shortage-source=openfda} set in an environment whose egress proxy
- * blocks {@code api.fda.gov}, the fetch threw and the API returned an unhandled
- * {@code 500} with a stack trace.
+ * <p>Added after a real development failure: with {@code shortage-source=openfda} behind an
+ * egress proxy blocking {@code api.fda.gov}, the fetch threw and the API returned a bare
+ * {@code 500}. Throwing was right - {@link ShortageFetchException} exists so a failed fetch
+ * never renders as "no shortages found" - but a raw {@code 500} leaves a client guessing,
+ * and a guessing client eventually guesses "probably fine".
  *
- * <p>The behaviour underneath was correct and is worth keeping: the fetch failed
- * <em>loudly</em> rather than returning an empty list. An empty list would have rendered as
- * "no shortages found", which is the single worst thing this application can say when it
- * actually knows nothing. That distinction is the whole reason
- * {@link ShortageFetchException} exists.
- *
- * <p>But a raw {@code 500} still leaves a client guessing, and a client that guesses will
- * eventually guess "probably fine". This handler removes the ambiguity by saying, in the
- * response body, exactly what failed and what the reader should not conclude from it.
- *
- * <p>{@code 503 Service Unavailable} is the accurate status: the request was valid and we
- * are temporarily unable to answer it, which is different from the client having erred
- * ({@code 4xx}) or our own logic being broken ({@code 500}).
+ * <p>So the body states what failed and what must <em>not</em> be concluded from it.
+ * {@code 503} is the accurate status: a valid request we are temporarily unable to answer,
+ * as opposed to client error ({@code 4xx}) or broken logic ({@code 500}).
  */
 @RestControllerAdvice
 public class ShortageSourceExceptionHandler {

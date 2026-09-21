@@ -8,9 +8,8 @@ public enum PassphraseStatus {
     /**
      * No passphrase agreed. The protection is not active.
      *
-     * <p>Treated as setup-incomplete, and nagged about. Someone who installs SafeWord and
-     * never agrees a passphrase is arguably <b>worse off than before</b>, because they now
-     * believe they are protected. An app that lets that state sit quietly is doing harm.
+     * <p>Nagged about, because someone who installs SafeWord and never agrees a passphrase
+     * is <b>worse off than before</b> - they now believe they are protected.
      */
     NOT_AGREED("No passphrase yet - SafeWord is not protecting you until you agree one"),
 

@@ -1,26 +1,15 @@
 """Turning distance into an honest travel-time estimate.
 
-The whole reason BirthPath exists is a time number:
+Travel time is the most consequential output here - US average distance to obstetric care
+is 8.1 miles, but 28.1 miles in a maternity care desert, and closures added an average of
+25 minutes. Two estimators:
 
-    US average distance to obstetric care: **8.1 miles**.
-    For women in a maternity care desert: **28.1 miles**.
-    Closures added an average of **25 minutes** of travel time.
+* :class:`RoadFactorEstimator` - pure arithmetic, always available, applies a documented
+  detour factor and speed assumption to a straight-line distance.
+* :class:`OsrmEstimator` - real road routing. ⚠️ Never run against a live OSRM server.
 
-Twenty-five extra minutes sounds survivable until it is attached to a postpartum
-haemorrhage, a placental abruption, or a precipitous labour on an icy road at 2am. So the
-travel-time estimate is the most consequential output in this application - and the one
-most likely to be quietly, dangerously wrong.
-
-Two estimators are provided:
-
-* :class:`RoadFactorEstimator` - pure arithmetic, no dependencies, always available. It
-  applies a documented detour factor and speed assumption to a straight-line distance and
-  is *explicit* that it is an estimate with a wide range.
-* :class:`OsrmEstimator` - real road routing via an OSRM server. Correct, and unverified:
-  no OSRM instance was reachable from the environment this was written in.
-
-Both return a :class:`TravelEstimate` carrying an explicit range and a confidence level,
-because a single confident-looking number is exactly what this problem cannot support.
+Both return a :class:`TravelEstimate` carrying a range and a confidence level: a single
+confident-looking number is what this problem cannot support.
 """
 
 from __future__ import annotations
@@ -64,8 +53,8 @@ class TravelEstimate:
     def as_range_text(self) -> str:
         """Render the estimate the way a person should read it.
 
-        Always a range, never a point. A single figure invites planning that the underlying
-        data cannot support, and on this problem over-confidence has a body count.
+        Always a range, never a point: a single figure invites planning the underlying data
+        cannot support.
 
         Returns:
             A human-readable range, e.g. ``"roughly 35-70 minutes"``.
@@ -76,17 +65,11 @@ class TravelEstimate:
 class RoadFactorEstimator:
     """Estimates driving time from straight-line distance and stated assumptions.
 
-    **This is the fallback, not the goal.** It exists because a real routing engine needs
-    an OSM extract and a running service, and BirthPath must still say something useful on
-    a laptop with nothing installed.
-
-    The method is deliberately crude and deliberately transparent: multiply the
-    straight-line distance by a *circuity factor* to approximate road distance, then divide
-    by an assumed average speed, then widen the result into a range.
-
-    Circuity in rural America is genuinely high - sparse grids, rivers, terrain - and the
-    factor here leans pessimistic on purpose. Under-estimating travel time on this problem
-    is the error that hurts people; over-estimating it only makes someone leave earlier.
+    **The fallback, not the goal** - real routing needs an OSM extract and a running
+    service, and BirthPath must still be useful without one. Crude and transparent:
+    straight-line miles x a circuity factor, divided by an assumed speed, widened to a
+    range. The factor leans pessimistic on purpose, because under-estimating travel time
+    is the error that hurts people; over-estimating only makes someone leave earlier.
     """
 
     RURAL_CIRCUITY_FACTOR = 1.4
@@ -137,15 +120,13 @@ class OsrmEstimator:
     """Estimates travel time using a real OSRM routing server.
 
     .. warning::
-        **Never exercised against a live server.** No OSRM instance was reachable from the
-        environment this was written in, so this class is built from OSRM's documented
-        route API shape and tested only against recorded responses. Treat the first live run
-        as part of the work.
+        ⚠️ **Never exercised against a live server.** Built from OSRM's documented route API
+        shape and tested only against recorded responses. Treat the first live run as work.
 
     Args:
         base_url: Root of an OSRM HTTP API, e.g. ``http://localhost:5000``.
         client: Anything with a ``get(url)`` returning an object with ``.json()``. Injected
-            so tests can supply a stub and the class stays usable without a network.
+            so tests can supply a stub.
     """
 
     def __init__(self, base_url: str, client) -> None:
@@ -164,9 +145,8 @@ class OsrmEstimator:
 
         Raises:
             RoutingUnavailable: If the server could not be reached or returned no route.
-                Raised rather than silently falling back, because a caller that believes it
-                got a routed answer when it got a guess is exactly the failure this module
-                is structured to prevent.
+                Raised rather than silently falling back: a caller that believes it got a
+                routed answer when it got a guess is the failure this module prevents.
         """
         url = (
             f"{self._base_url}/route/v1/driving/"
@@ -205,8 +185,7 @@ class OsrmEstimator:
 class RoutingUnavailable(RuntimeError):
     """Raised when a routing engine could not produce an answer.
 
-    Deliberately not caught-and-defaulted inside :class:`OsrmEstimator`. The caller decides
-    whether to fall back to an estimate, and when it does, the resulting
-    :class:`TravelEstimate` says ``ESTIMATED`` - so a downgrade is always visible rather
-    than silent.
+    Not caught-and-defaulted inside :class:`OsrmEstimator`: the caller decides whether to
+    fall back, and the resulting :class:`TravelEstimate` then says ``ESTIMATED``, so a
+    downgrade is always visible.
     """

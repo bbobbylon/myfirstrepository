@@ -7,13 +7,9 @@ import org.springframework.stereotype.Component;
 /**
  * Decides which days before a deadline get a reminder.
  *
- * <h2>Escalation, not repetition</h2>
- * A reminder that arrives every day for two months trains people to ignore it, and an
- * ignored reminder is worse than none because it also carries false reassurance ("the app
- * would have told me"). A reminder that arrives once, sixty days out, is forgotten by the
- * time it matters.
- *
- * <p>So the ladder is sparse and far out, dense and close in:
+ * <p><b>Escalation, not repetition.</b> Daily reminders for two months train people to
+ * ignore them, and an ignored reminder carries false reassurance. One reminder sixty days
+ * out is forgotten by the time it matters. So the ladder is sparse far out, dense close in:
  * <ul>
  *   <li><b>60 and 45 days</b> - plan: check your address, find your documents</li>
  *   <li><b>30, 21, 14 days</b> - act: complete the renewal</li>
@@ -21,10 +17,9 @@ import org.springframework.stereotype.Component;
  *       close a case, and where 14 of them reportedly allow only 10 days to respond</li>
  * </ul>
  *
- * <p>The shape is driven by the asymmetry in the problem: roughly <b>70% of Medicaid
- * terminations are procedural</b> - a missed deadline or an unreturned form - rather than a
- * finding that someone no longer qualifies. Nobody wants those terminations, including the
- * state, which pays to process the same person's re-application weeks later.
+ * <p>Roughly <b>70% of Medicaid terminations are procedural</b> rather than a finding that
+ * someone no longer qualifies. Nobody wants those, including the state, which pays to
+ * process the re-application weeks later.
  */
 @Component
 public class ReminderLadder {

@@ -3,16 +3,10 @@ package com.renewalguard.domain;
 /**
  * How urgent a renewal deadline is, and what the person should do about it.
  *
- * <h2>The thresholds are shaped by how little time states actually give</h2>
- * These are not arbitrary. Where documentation is required to avoid termination,
- * <b>14 states give enrollees only 10 days to respond</b>, and states must send a
- * termination notice at least 10 days before closing a case. A reminder ladder built around
- * a comfortable 30-day assumption would fire its first real warning after the window had
- * already opened and half closed.
- *
- * <p>So the ladder starts early and escalates hard: a gentle nudge at 60 days, a firm one at
- * 30, and daily urgency inside the last 10 - the window where a missed letter becomes a
- * closed case.
+ * <p>Shaped by how little time states give: where documents are required,
+ * <b>14 states allow only 10 days to respond</b>. A ladder built on a comfortable 30-day
+ * assumption would fire its first real warning after the window had half closed. So it
+ * starts early and escalates hard - gentle at 60 days, firm at 30, daily inside the last 10.
  *
  * <p>⚠️ The "14 states / 10 days" figure and the 10-day notice requirement are each from a
  * single source and could not be confirmed against regulation text from this environment.

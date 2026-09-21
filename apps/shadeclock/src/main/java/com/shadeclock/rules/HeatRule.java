@@ -3,15 +3,10 @@ package com.shadeclock.rules;
 /**
  * One threshold-triggered requirement within a jurisdiction's heat ruleset.
  *
- * <h2>Rules as data, not as code</h2>
- * It would be shorter to write {@code if (heatIndex >= 95) { ... }} inside a scheduler. It
- * would also be unreviewable: a safety officer cannot audit an if-statement buried three
- * classes deep, and adding a second state would mean editing scheduling logic rather than
- * adding a row.
- *
- * <p>Modelling each requirement as a value object means the full ruleset can be printed,
- * diffed, reviewed by someone who does not read Java, and returned over the API so a user
- * can see exactly which rule fired and why.
+ * <p><b>Rules as data, not code.</b> {@code if (heatIndex >= 95)} inside a scheduler would be
+ * shorter and unreviewable - a safety officer cannot audit an if-statement buried three
+ * classes deep. As value objects the ruleset can be printed, diffed, reviewed by someone who
+ * does not read Java, and returned over the API so a user sees which rule fired.
  *
  * @param triggerHeatIndexF  the heat index at or above which this requirement applies
  * @param requirement        what the employer must do, in plain language

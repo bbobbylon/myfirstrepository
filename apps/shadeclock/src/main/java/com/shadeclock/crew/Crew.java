@@ -5,11 +5,9 @@ import java.util.List;
 /**
  * A work crew at one site, which is the unit ShadeClock schedules for.
  *
- * <h2>Why the crew, not the individual, is the unit</h2>
- * The official OSHA-NIOSH Heat Safety Tool is a single-worker app: one person, one phone,
- * one risk colour. But the decision that actually prevents heat illness - "we stop at 11:40
- * and rotate in two groups" - is made by a supervisor for a group, not by each worker for
- * themselves. Building for the individual puts the information in the wrong hands.
+ * <p>The crew is the unit because the decision that prevents heat illness - "we stop at
+ * 11:40 and rotate in two groups" - is made by a supervisor for a group. The official
+ * OSHA-NIOSH tool is single-worker, which puts the information in the wrong hands.
  *
  * @param id        stable identifier
  * @param name      what the supervisor calls this crew

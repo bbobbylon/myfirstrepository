@@ -3,17 +3,12 @@ package com.shadeclock.rules;
 /**
  * How confident ShadeClock is that a ruleset matches the regulation it claims to encode.
  *
- * <h2>Why this is a first-class field and not a code comment</h2>
- * ShadeClock encodes legal thresholds that a supervisor may act on. Getting one wrong is not
- * a cosmetic bug - it could mean a crew works through a break the law required. The honest
- * engineering response to "I believe this threshold is 95°F but I have not read the
- * regulation myself" is not to hide the doubt in a comment nobody reads, but to carry it
- * through to the API response and the user interface.
- *
- * <p>Every ruleset therefore declares its provenance, and any ruleset that is not
- * {@link #VERIFIED_AGAINST_REGULATION} causes a visible caveat in output. That way the
- * product degrades into "useful planning aid with a warning" rather than pretending to be
- * "compliance guarantee".
+ * <p>These are legal thresholds a supervisor may act on, so getting one wrong could mean a
+ * crew works through a break the law required. The honest response to "I believe this is
+ * 95°F but have not read the regulation" is to carry that doubt through to the API response,
+ * not hide it in a comment. Anything not {@link #VERIFIED_AGAINST_REGULATION} produces a
+ * visible caveat, so the product degrades into "planning aid with a warning" rather than
+ * pretending to be a compliance guarantee.
  */
 public enum VerificationStatus {
 

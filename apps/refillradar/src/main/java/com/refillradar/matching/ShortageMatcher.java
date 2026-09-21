@@ -21,16 +21,9 @@ import com.refillradar.refill.RefillProjector;
  * The engine: intersects a user's medication list with the FDA shortage feed and ranks the
  * results by how soon that user actually runs out.
  *
- * <p>This is the "two guest lists" problem described on {@link DrugNameNormalizer} - this
- * class performs the comparison, the normaliser decides when two differently-spelled names
- * refer to the same drug.
- *
- * <h2>Design note: no database, no network, no clock of its own</h2>
- * Everything this class needs arrives as a method argument or a constructor dependency. It
- * never fetches anything. That makes the most important logic in the application testable
- * in milliseconds with no Docker, no Postgres and no internet - which matters especially
- * here, because the session this was written in could not reach {@code api.fda.gov} at all.
- * Code that is hard to test tends to be code that stays untested.
+ * <p>Pure: everything arrives as an argument or constructor dependency, nothing is fetched.
+ * That makes the most important logic in the application testable in milliseconds with no
+ * Docker, no Postgres and no internet.
  */
 @Service
 public class ShortageMatcher {

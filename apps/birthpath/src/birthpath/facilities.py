@@ -1,12 +1,9 @@
 """Where facility records come from.
 
-The same fixture/live seam as the other four apps, for the same reasons: this build
-environment's egress policy blocks the federal data portals, and even with open network
-access a test suite that depends on a third-party download is slow and fragile.
-
-The fixture is a small set of realistic facilities spanning a maternity care desert, with
-verification dates deliberately spread across fresh, ageing, stale and never-verified so
-the freshness logic is exercised. A live feed will not produce those four states to order.
+The same fixture/live seam as the other four apps: this environment's egress policy blocks
+the federal data portals, and a test suite depending on a third-party download is slow and
+fragile either way. Fixture verification dates are spread across fresh, ageing, stale and
+never-verified, which a live feed will not produce to order.
 """
 
 from __future__ import annotations
@@ -21,9 +18,8 @@ from birthpath.geo import Coordinates
 class FacilitySource(Protocol):
     """Supplies facility records.
 
-    A ``Protocol`` rather than an abstract base class: Python's structural typing means an
-    implementation does not need to inherit anything, which keeps a future CMS loader free
-    of a dependency on this module.
+    A ``Protocol``, not an ABC: structural typing means an implementation inherits nothing,
+    so a future CMS loader needs no dependency on this module.
     """
 
     def all_facilities(self) -> list[Facility]:
@@ -36,9 +32,9 @@ class FacilitySource(Protocol):
 class FixtureFacilitySource:
     """A small, deterministic set of facilities for development and tests.
 
-    Coordinates are real west Texas towns, because that region is a documented extreme:
-    **76 of 107 west Texas counties are maternal healthcare deserts.** The facilities
-    themselves are illustrative, not a real directory - see :meth:`describe_source`.
+    Coordinates are real west Texas towns - a documented extreme, with 76 of 107 west Texas
+    counties maternal healthcare deserts. ⚠️ The facilities are illustrative, not a real
+    directory; see :meth:`describe_source`.
     """
 
     def all_facilities(self) -> list[Facility]:

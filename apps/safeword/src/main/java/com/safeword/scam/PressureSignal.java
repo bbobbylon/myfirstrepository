@@ -3,16 +3,13 @@ package com.safeword.scam;
 /**
  * A tactic reported during a suspicious call.
  *
- * <h2>Why SafeWord scores tactics, not voices</h2>
- * Every one of these is something the <em>caller does</em>, observable by the person on the
- * phone without any technical judgement. That is the opposite of asking "does this voice
- * sound real?", which is a question humans can no longer answer and software should not
- * pretend to.
+ * <p>SafeWord scores tactics, not voices. Each signal is something the <em>caller does</em>,
+ * observable without technical judgement - unlike "does this voice sound real?", which humans
+ * can no longer answer and software should not pretend to.
  *
- * <p>The tactics are stable across scam generations because they exploit human psychology
- * rather than technology. Voice cloning changed how convincing the <em>voice</em> is; it did
- * not change the need to manufacture urgency, isolate the target, and demand an irreversible
- * payment. Those three remain the signature, and they are what SafeWord looks at.
+ * <p>Tactics are stable across scam generations because they exploit psychology, not
+ * technology. Voice cloning changed how convincing the voice is; it did not remove the need
+ * to manufacture urgency, isolate the target, and demand an irreversible payment.
  */
 public enum PressureSignal {
 
@@ -60,10 +57,9 @@ public enum PressureSignal {
     /**
      * How strongly this signal indicates a scam.
      *
-     * <p>Weights are a product judgement, not a validated model, and are stated in one place
-     * so they can be reviewed rather than scattered through scoring code. The heaviest are
-     * the two that make a loss unrecoverable: an irreversible payment method, and remote
-     * access.
+     * <p>⚠️ Weights are a product judgement, not a validated model. They live in one place so
+     * they can be reviewed. The heaviest two are what make a loss unrecoverable: irreversible
+     * payment, and remote access.
      *
      * @return the weight
      */

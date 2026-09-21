@@ -11,37 +11,20 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
- * Reduces messy human and regulatory drug names to a comparable set of ingredient tokens.
+ * Reduces messy human and regulatory drug names to comparable ingredient tokens.
  *
- * <h2>Why this class is the hard part of the whole application</h2>
- * Everything else in RefillRadar is scheduling, date arithmetic and sending email. The real
- * difficulty is that a user types {@code "Adderall XR 10mg"} while the FDA publishes
- * {@code "AMPHETAMINE ASPARTATE; AMPHETAMINE SULFATE; DEXTROAMPHETAMINE..."}. Those are the
- * same medicine and share no words at all.
+ * <p>The hard part of the application. A user types {@code "Adderall XR 10mg"}; the FDA
+ * publishes {@code "AMPHETAMINE ASPARTATE; AMPHETAMINE SULFATE; ..."}. Same medicine, zero
+ * shared words. Get this wrong and the app fails <em>silently</em> - no alerts, and silence
+ * looks like good news. Hence the heaviest test coverage in the project.
  *
- * <p><b>The analogy.</b> Picture two guest lists at a door. One is "drugs currently in
- * shortage", the other is "drugs this user takes", and you are looking for names on both.
- * The catch is that the same guest appears on one list as "Robert" and the other as "Bob".
- * This class is the ID check that proves they are the same person. Get it wrong and the
- * whole app fails <em>silently</em> - no alerts go out, and silence looks exactly like good
- * news. That is why this class carries the heaviest test coverage in the project.
+ * <p>Normalisation strips strengths, dosage forms, punctuation and casing, and splits
+ * combination products into separate tokens.
  *
- * <h2>What normalisation removes</h2>
- * <ol>
- *   <li>Strengths and units - {@code "10mg"}, {@code "0.5 mcg/ml"}</li>
- *   <li>Dosage forms and release modifiers - {@code "tablet"}, {@code "XR"}, {@code "oral"}</li>
- *   <li>Punctuation and casing</li>
- *   <li>Combination separators - a multi-ingredient product becomes several tokens</li>
- * </ol>
- *
- * <h2>Known limitation - read before relying on this</h2>
- * The brand-to-generic mapping below is a hand-seeded stopgap covering a small number of
- * commonly-short drugs. <b>The correct solution is RxNorm</b> (NIH/NLM), which maintains
- * authoritative brand-to-ingredient relationships for essentially every US drug. RxNorm is
- * staged for v0.2 and needs network access plus a caching layer, so it is deliberately out
- * of scope for v0.1. Until then this normaliser will miss brands it has never heard of,
- * which produces false negatives - the dangerous direction. That limitation is surfaced to
- * users rather than hidden.
+ * <p><b>Known limitation:</b> the brand-to-generic map below is a hand-seeded stopgap. The
+ * correct solution is RxNorm (NIH/NLM), deferred to v0.3 because it needs network access
+ * and caching. Until then unknown brands produce false negatives - the dangerous direction -
+ * which {@link #recognisesBrand} surfaces to users rather than hiding.
  */
 @Component
 public class DrugNameNormalizer {

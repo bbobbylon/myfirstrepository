@@ -58,10 +58,9 @@ public enum RiskLevel {
     /**
      * Classifies a summed tactic score.
      *
-     * <p>Thresholds are product judgement, stated in one place. They are set to fire
-     * <b>early</b>: the cost of an unnecessary pause is a slightly awkward phone call, and
-     * the cost of a missed one averages over $38,000 for this age group. The asymmetry
-     * justifies leaning towards caution.
+     * <p>⚠️ Thresholds are product judgement, not a validated model. They fire <b>early</b>
+     * on purpose: an unnecessary pause costs an awkward phone call, a missed one averages
+     * over $38,000 for this age group.
      *
      * @param score the summed weight of observed tactics
      * @return the matching level, never {@code null}

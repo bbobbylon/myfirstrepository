@@ -53,8 +53,7 @@ public record FamilyCircle(
      * Whether setup is genuinely finished.
      *
      * <p>A circle with members but no agreed passphrase is <b>not</b> set up, however
-     * complete it looks. Marking it done would leave someone believing they are protected
-     * when the core mechanism does not exist - which is worse than not installing the app.
+     * complete it looks - the core mechanism does not exist yet.
      *
      * @param today the day to assess
      * @return {@code true} only when a passphrase is agreed and at least one responder exists

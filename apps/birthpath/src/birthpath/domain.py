@@ -1,21 +1,12 @@
 """Facilities, their obstetric status, and how stale that status is.
 
-The single greatest risk in BirthPath is not a routing bug. It is **stale data**: a
-facility listed as delivering babies that stopped six months ago. Sending someone in labour
-to a closed unit is a physical harm, and it is entirely possible because closures happen
-faster than federal datasets refresh.
+The greatest risk here is not a routing bug but **stale data**: a facility listed as
+delivering that stopped six months ago. Closures outpace federal dataset refreshes - at
+least 96 L&D closures since January 2024 (~60% eliminating their county's only birthing
+facility), 146 rural hospitals stopping by end-2026, 718 hospitals between 2010 and 2024.
 
-Context for why that is not hypothetical:
-
-* **At least 96 labour and delivery unit closures since January 2024**, nearly **60%** of
-  which eliminated their county's only birthing facility.
-* **146 rural hospitals** have stopped delivering babies or announced they will before the
-  end of 2026 - a **14%** reduction in rural L&D units since end-2020.
-* **718 hospitals** stopped providing obstetric care between 2010 and 2024.
-
-So verification status is modelled as a first-class property of every record, not a
-footnote. Every facility carries the date a human last confirmed it, and anything stale is
-downgraded rather than quietly served as fact.
+So verification is a first-class property of every record: each facility carries the date
+a human last confirmed it, and anything stale is downgraded rather than served as fact.
 """
 
 from __future__ import annotations
@@ -39,8 +30,8 @@ class ObstetricStatus(str, Enum):
     UNKNOWN = "unknown"
     """Never confirmed, or confirmation too old to rely on.
 
-    Treated as "call ahead", never as "probably fine". On this problem the cost of a
-    false positive is someone arriving at a closed unit in labour.
+    Treated as "call ahead", never "probably fine": a false positive means someone
+    arriving at a closed unit in labour.
     """
 
 
@@ -120,11 +111,9 @@ class Facility:
     def effective_status(self, today: date) -> ObstetricStatus:
         """The status that may honestly be acted on today.
 
-        A stale or never-verified record is reported as :attr:`ObstetricStatus.UNKNOWN`
-        regardless of what it once said. **This is the most important method in
-        BirthPath.** Without it, a record confirmed in 2024 would present in 2026 as
-        settled fact, and the whole application would be a confident directory of
-        facilities that may no longer deliver babies.
+        A stale or never-verified record reports as :attr:`ObstetricStatus.UNKNOWN`
+        whatever it once said. **The most important method in BirthPath** - without it, a
+        record confirmed in 2024 would present in 2026 as settled fact.
 
         Args:
             today: The date to assess against.

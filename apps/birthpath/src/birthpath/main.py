@@ -1,19 +1,11 @@
 """HTTP API for BirthPath.
 
-FastAPI rather than Django, which is a deviation from the original proposal worth
-explaining rather than glossing over.
-
-The proposal recommended Django + PostGIS, and the *Python* half of that reasoning fully
-holds: this is data-wrangling and geospatial work where Python's ecosystem is decisively
-better than the JVM's. The *Django* half was justified by its admin, auth and ORM - all of
-which need a database. This environment has no Docker daemon, so PostGIS cannot run here,
-and a Django app configured against a database nobody can start would be a worse artefact
-than a working one without it.
-
-So v0.1 is FastAPI with in-memory fixtures: it runs anywhere Python does, and the
-geospatial logic - the part that actually needed Python - is fully exercised. PostGIS
-becomes worthwhile at the point there are thousands of facilities to index, which is a
-v0.2 concern.
+FastAPI rather than the proposal's Django + PostGIS. The *Python* half of that reasoning
+holds - this is geospatial data work. The *Django* half was justified by its admin, auth
+and ORM, all of which need a database, and no Docker daemon is available here to run
+PostGIS. So v0.1 is FastAPI with in-memory fixtures: it runs anywhere Python does and
+fully exercises the geospatial logic. PostGIS becomes worthwhile at thousands of
+facilities, which is a v0.2 concern.
 """
 
 from __future__ import annotations
@@ -126,9 +118,8 @@ def build_plan(
 def list_facilities(on: date | None = Query(None)) -> dict:
     """List every known facility with its verification state.
 
-    Exists so the freshness model is inspectable. A user - or a journalist, or a health
-    department - should be able to see exactly which records we consider trustworthy and
-    which we are downgrading, rather than taking the ranking on faith.
+    Makes the freshness model inspectable: anyone can see which records are trusted and
+    which are downgraded, rather than taking the ranking on faith.
 
     Args:
         on: Optional override for "today".

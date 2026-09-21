@@ -7,19 +7,9 @@ import com.refillradar.domain.Medication;
 /**
  * Stores the medications users have registered.
  *
- * <h2>Why an interface for something this small</h2>
- * v0.1 stores medications in memory so the application runs with no database at all - clone,
- * {@code mvnw spring-boot:run}, done. That is the right trade for proving the engine works,
- * and the wrong one for anything real: a restart loses every user's list.
- *
- * <p>Putting persistence behind this interface means moving to PostgreSQL in v0.2 is a new
- * implementation plus a configuration change, with no edits to the matcher, the alert
- * composer or their tests. The alternative - {@code ConcurrentHashMap} calls scattered
- * through the service layer - turns that migration into a rewrite.
- *
- * <p>The analogy: this is the difference between a building with a <em>plumbing plan</em>
- * and one where each room was connected to the mains by whoever was nearest. Both deliver
- * water; only one can be renovated.
+ * <p>v0.1 stores them in memory so the app runs with no database. Putting persistence behind
+ * an interface means moving to PostgreSQL is a new implementation plus config, rather than a
+ * rewrite of the matcher and its tests.
  */
 public interface MedicationRepository {
 

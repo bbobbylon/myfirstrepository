@@ -15,24 +15,15 @@ import com.refillradar.domain.SupplyRisk;
 /**
  * Remembers what we have already told each user, so a nightly job does not repeat itself.
  *
- * <h2>The failure this exists to prevent</h2>
- * Shortages last months. A nightly sync with no memory would email the same person about the
- * same shortage every night for a quarter. They would stop reading it by week two - and an
- * ignored alert is worse than no alert, because it still carries the implication that
- * someone is watching.
+ * <p>Shortages last months, so a nightly sync with no memory would email the same person
+ * nightly for a quarter. They stop reading by week two, and an ignored alert is worse than
+ * none because it still implies someone is watching. Same lesson as RenewalGuard's reminder
+ * ladder: <b>escalation, not repetition.</b>
  *
- * <p>This is the same lesson RenewalGuard's reminder ladder encodes: <b>escalation, not
- * repetition.</b> v0.1 never hit it because checks were on demand only; the moment a
- * scheduler exists, de-duplication stops being optional.
- *
- * <h2>The subtlety: de-duplication must not suppress NEW information</h2>
- * A naive ledger says "already told them, stay quiet forever". That is wrong. If a user's
- * situation moves from {@link SupplyRisk#MEDIUM} to {@link SupplyRisk#CRITICAL}, that is
- * genuinely new and urgent - they have days left now, not weeks. Suppressing it would be the
- * worst possible behaviour, so {@link #shouldSend} re-alerts on escalation.
- *
- * <p>It also re-alerts after {@link #REPEAT_AFTER}, so a months-long shortage produces an
- * occasional reminder rather than one message in January and silence until March.
+ * <p>The subtlety is that de-duplication must not suppress <em>new</em> information. A move
+ * from {@link SupplyRisk#MEDIUM} to {@link SupplyRisk#CRITICAL} means days left, not weeks,
+ * so {@link #shouldSend} re-alerts on escalation - and again after {@link #REPEAT_AFTER},
+ * so a long shortage produces occasional reminders rather than months of silence.
  */
 @Component
 public class AlertLedger {

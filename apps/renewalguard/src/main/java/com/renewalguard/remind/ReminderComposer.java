@@ -12,7 +12,8 @@ import com.renewalguard.domain.RenewalUrgency;
 /**
  * Writes the words a person actually reads.
  *
- * <h2>Three rules, and they are not stylistic</h2>
+ * <p>Three rules, none of them stylistic:
+ *
  * <ol>
  *   <li><b>Never say whether someone qualifies.</b> Eligibility is the state agency's legal
  *       determination. A message implying "you probably will not qualify anyway" could talk
@@ -25,9 +26,8 @@ import com.renewalguard.domain.RenewalUrgency;
  *       estimate; the person's own notice is authoritative. Every message says so.</li>
  * </ol>
  *
- * <p>Tone matters here more than in the other apps. The reader may be having a hard week,
- * may have been shamed for claiming before, and stigma is a documented barrier to benefit
- * uptake. The copy is matter-of-fact and free of both alarm and cheerfulness.
+ * <p>Stigma is a documented barrier to benefit uptake, so the copy stays matter-of-fact -
+ * free of both alarm and cheerfulness.
  */
 @Service
 public class ReminderComposer {

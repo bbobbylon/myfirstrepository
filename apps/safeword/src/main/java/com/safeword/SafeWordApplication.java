@@ -12,11 +12,8 @@ import org.springframework.context.annotation.Bean;
  * <p>SafeWord intervenes at the moment of the call - the thirty seconds before money moves -
  * with a pre-agreed family passphrase, a forced pause, and one-tap escalation to relatives.
  *
- * <p>It is deliberately a <em>different layer</em> from account-monitoring products such as
- * Carefull and EverSafe, which are good at what they do but fire <b>after</b> a transaction.
- * For a wire transfer or gift cards - instruments these scams choose precisely because they
- * are irreversible - an alert after the fact tells a family the money is gone. Running both
- * together is entirely reasonable.
+ * <p>A different layer from account-monitoring products (Carefull, EverSafe), which fire
+ * <b>after</b> a transaction - too late for the irreversible instruments these scams choose.
  *
  * <p>Run with {@code ./mvnw spring-boot:run}, or as a JAR.
  *

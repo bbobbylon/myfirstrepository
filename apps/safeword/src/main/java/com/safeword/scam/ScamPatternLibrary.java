@@ -7,30 +7,19 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * The library of scam shapes SafeWord recognises, with the reported scale of each.
+ * The library of scam shapes SafeWord recognises, ordered by what US reporting says each
+ * actually costs people aged 60 and over.
  *
- * <h2>Why these five, and why the loss figures matter</h2>
- * The patterns below are ordered by what US reporting says they actually cost people aged 60
- * and over, rather than by how memorable they are. In 2025, that age group reported
- * <b>over 201,000 complaints and more than $7.7 billion in losses</b> to the FBI's IC3 -
- * with an average loss above $38,000, and more than 12,400 people losing over $100,000 each.
- * Older adults filed 20% of complaints but bore 37% of the losses.
+ * <p>Source: FBI IC3 2025 elder fraud reporting - 201,000+ complaints and $7.7B+ in losses
+ * for that age group, broken down as investment $3.52B, tech support $1.04B, romance $584M.
+ * IC3's first dedicated AI section reported ~$893M overall, ~$352M of it from the 60+ group,
+ * counting only cases where the victim <em>realised</em> AI was involved.
  *
- * <p>Within that, the reported breakdown was investment fraud <b>$3.52B</b>, tech and customer
- * support <b>$1.04B</b>, and confidence/romance <b>$584M</b>. 2025 was also the first year
- * IC3's annual report broke out a dedicated AI section: <b>22,364 complaints, ~$893M</b>, of
- * which about <b>$352M</b> hit the 60+ group - and that only counts cases where the victim
- * <em>realised</em> AI was involved, so the true figure is necessarily higher. A successful
- * voice clone is one nobody detects.
+ * <p>⚠️ Sources disagree on the year-over-year growth rate (+59% vs +37%), so no growth rate
+ * is quoted anywhere in this application. The base figures above are consistently reported.
  *
- * <p>⚠️ Sources disagree on the year-over-year growth rate (some report +59% in losses, others
- * +37%). The base figures above are consistently reported; the growth rate is not, and is not
- * quoted anywhere in this application.
- *
- * <p>The figures appear in user-facing copy deliberately but sparingly. Telling someone
- * "this pattern took $1 billion from people last year" is context that helps them take a pause
- * seriously. Frightening people to sell a subscription would be predatory - especially to an
- * audience that is already a target - so the tone stays factual and the numbers stay sourced.
+ * <p>Figures appear in user-facing copy sparingly: enough context to take a pause seriously,
+ * never fear used to sell to an audience that is already a target.
  */
 @Component
 public class ScamPatternLibrary {
@@ -126,10 +115,8 @@ public class ScamPatternLibrary {
     /**
      * The patterns that best match a set of observed tactics, best first.
      *
-     * <p>Returns matches rather than a single verdict on purpose. Real calls blend patterns,
-     * and presenting one confident answer would overstate what this can know from a handful
-     * of checkboxes. The person is better served by "this looks like one of these two - here
-     * is what both have in common" than by a false precision.
+     * <p>Returns matches rather than one verdict: real calls blend patterns, and a single
+     * confident answer would overstate what a handful of checkboxes can know.
      *
      * @param observed the tactics reported
      * @return matching patterns ordered by match strength, never {@code null}

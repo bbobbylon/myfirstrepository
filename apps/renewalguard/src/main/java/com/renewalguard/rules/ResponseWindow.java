@@ -5,23 +5,14 @@ import org.springframework.stereotype.Component;
 /**
  * How long a person has to respond once their agency asks for documents.
  *
- * <h2>Why this assumes the shortest window rather than the typical one</h2>
- * Response windows vary by state. Reporting indicates that where documentation is required
- * to avoid termination, <b>14 states give enrollees only 10 days to respond</b>. A federal
- * Eligibility &amp; Enrollment rule would require at least 30 days where data indicates
- * ineligibility, but that provision is reported to be subject to a 10-year implementation
- * moratorium.
+ * <p>Reporting says <b>14 states allow only 10 days</b> where documents are required.
+ * <b>I do not know which 14</b> - the state list was not in the source, and inventing a
+ * plausible one would be fabrication.
  *
- * <p><b>I do not know which 14 states.</b> That figure came from a single source and the
- * state list was not part of it. Inventing a plausible-looking list of states would be
- * fabrication, and fabrication in a tool people rely on for a deadline is worse than
- * admitting a gap.
- *
- * <p>So RenewalGuard does the defensible thing instead: it <b>assumes the shortest window
- * anyone is reported to get</b> ({@value #CONSERVATIVE_DEFAULT_DAYS} days) unless the user
- * tells it otherwise from their own notice. The asymmetry is the whole argument - assuming
- * 30 days when someone actually has 10 loses their coverage; assuming 10 when they have 30
- * just means they finish early.
+ * <p>So this assumes the <b>shortest</b> reported window ({@value #CONSERVATIVE_DEFAULT_DAYS}
+ * days) unless the user enters their own from their notice. The asymmetry is the argument:
+ * assuming 30 days when someone has 10 loses their coverage; assuming 10 when they have 30
+ * just means finishing early.
  *
  * <p>⚠️ Both figures above are single-source and unverified against regulation text. They
  * shape the reminder cadence; they are never quoted to a user as legal fact.

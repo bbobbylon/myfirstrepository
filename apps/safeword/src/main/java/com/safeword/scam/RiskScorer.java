@@ -7,10 +7,9 @@ import org.springframework.stereotype.Service;
 /**
  * Turns a set of reported tactics into a recommendation.
  *
- * <p>Pure and dependency-light: everything arrives as an argument, so the whole scoring
- * model is exhaustively testable in milliseconds. That matters here because the output is
- * shown to a frightened person during a live call, and it must behave identically every
- * time.
+ * <p>Pure and dependency-light, so the whole scoring model is exhaustively testable: the
+ * output is shown to a frightened person during a live call and must behave identically
+ * every time.
  */
 @Service
 public class RiskScorer {

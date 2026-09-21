@@ -8,14 +8,10 @@ import com.shadeclock.heat.HourlyConditions;
 /**
  * Supplies hourly weather for a work site.
  *
- * <p>The same fixture/live seam as RefillRadar's {@code ShortageSource}, for the same two
- * reasons: this build environment's egress policy blocks {@code api.weather.gov}, and even
- * with open network access a test suite that depends on a third-party weather service is
- * slow, rate-limited, and red whenever someone else has an outage.
- *
- * <p>The fixture also lets tests exercise conditions you cannot order up from the real
- * atmosphere - a 118°F afternoon, a humidity spike, a flat 70°F day - which is where the
- * scheduling logic most needs checking.
+ * <p>The same fixture/live seam as RefillRadar's {@code ShortageSource}: this environment
+ * blocks {@code api.weather.gov}, and a suite depending on a third-party weather service is
+ * slow and red whenever someone else has an outage. The fixture also exercises conditions
+ * you cannot order from the real atmosphere - a 118°F afternoon, a flat 70°F day.
  */
 public interface ForecastSource {
 

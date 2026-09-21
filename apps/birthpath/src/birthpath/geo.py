@@ -1,18 +1,9 @@
 """Geographic distance maths.
 
-This module holds exactly one dangerous idea, so it is worth isolating: **straight-line
-distance is not travel time, and in rural America the gap is not small.**
-
-Great-circle distance ignores rivers, mountains, lakes, private land and the simple fact
-that rural road networks are sparse. Its error is not random - it is *systematically*
-biased in the dangerous direction, because roads are always at least as long as the
-straight line and usually much longer. A tool that reported "12 miles" for a journey that
-actually takes 50 minutes of switchbacks would be worse than no tool, because the number
-looks authoritative.
-
-So `haversine_miles` exists to answer "which facilities are worth considering at all",
-and nothing else. Converting distance into time is the job of
-:mod:`birthpath.travel`, which is explicit about how much it is guessing.
+**Straight-line distance is not travel time**, and its error is not random: roads are
+always at least as long as the straight line, so the bias always runs in the dangerous
+direction. `haversine_miles` therefore answers only "which facilities are worth
+considering at all". Converting distance to time belongs to :mod:`birthpath.travel`.
 """
 
 from __future__ import annotations
@@ -25,9 +16,7 @@ EARTH_RADIUS_MILES = 3958.7613
 
 @dataclass(frozen=True)
 class Coordinates:
-    """A latitude/longitude pair.
-
-    Frozen because a coordinate that changes under you is a bug that surfaces as a
+    """A latitude/longitude pair. Frozen: a coordinate that mutates surfaces as a
     mysteriously wrong distance much later.
 
     Args:
@@ -35,8 +24,7 @@ class Coordinates:
         longitude: Degrees east, -180 to 180.
 
     Raises:
-        ValueError: If either value is outside its valid range. Failing loudly beats
-            silently computing a distance to a point that cannot exist.
+        ValueError: If either value is outside its valid range.
     """
 
     latitude: float
@@ -52,9 +40,8 @@ class Coordinates:
 def haversine_miles(origin: Coordinates, destination: Coordinates) -> float:
     """Great-circle distance between two points, in miles.
 
-    **This is not a travel distance and must never be shown to a user as one.** It is a
-    screening measure: cheap enough to run against thousands of facilities to decide which
-    handful deserve a real routing lookup.
+    **Not a travel distance; never show it as one.** It is a screening measure, cheap
+    enough to run against thousands of facilities to pick the handful worth routing.
 
     Args:
         origin: Starting point.

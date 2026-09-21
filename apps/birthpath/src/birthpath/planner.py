@@ -1,22 +1,13 @@
 """The engine: turn an address into a ranked, honest birth logistics plan.
 
-BirthPath is a **logistics and contingency planner, not a pregnancy app and not a source
-of medical advice.** The line it must never cross is stated once here and enforced
-throughout:
+BirthPath is a **logistics planner, not a source of medical advice.** The line it must
+never cross: it says *"this hospital is 47 minutes away by road"*; it must **never** say
+*"you have time"* or *"this is safe"*. Distance is a fact; whether a distance is
+acceptable for a specific pregnancy is a clinician's judgement.
 
-    It says *"this hospital is 47 minutes away by road."*
-    It must **never** say *"you have time"*, *"this is safe"*, or anything implying a
-    clinical risk assessment.
-
-Distance is a fact. Whether a given distance is acceptable for a specific pregnancy is a
-clinical judgement belonging to a clinician who knows that patient.
-
-The problem being planned around:
-
-* **One in three US counties are maternity care deserts.**
-* **5.8 million women and 358,000 infants** live in counties without full access.
-* Average distance to obstetric care is **8.1 miles** nationally - but **28.1 miles** for
-  women in a desert.
+Scale of the problem: one in three US counties are maternity care deserts, holding 5.8
+million women and 358,000 infants; average distance to obstetric care is 8.1 miles
+nationally but 28.1 miles in a desert.
 """
 
 from __future__ import annotations
@@ -98,9 +89,8 @@ class BirthPlanBuilder:
     def build(self, origin: Coordinates, today: date) -> BirthPlan:
         """Build a plan for a location.
 
-        Ranking is by **estimated travel time**, not by straight-line distance. In rural
-        areas those two orders genuinely differ, and the straight-line order is the one
-        that gets someone into the mountains.
+        Ranking is by **estimated travel time**, not straight-line distance: in rural
+        areas those orders genuinely differ.
 
         Args:
             origin: The user's location.
@@ -168,8 +158,8 @@ class BirthPlanBuilder:
     def _warnings(self, primary, backup, closer_unknown) -> list[str]:
         """Assemble the standing safety notes shown on every plan.
 
-        Ordered most-important-first, because this may be read on a phone with one bar by
-        someone who reads only the top.
+        Ordered most-important-first: this may be read on a phone with one bar by someone
+        who reads only the top.
 
         Args:
             primary: The chosen primary facility, if any.

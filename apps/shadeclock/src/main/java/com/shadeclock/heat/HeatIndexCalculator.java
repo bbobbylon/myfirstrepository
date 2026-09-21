@@ -5,41 +5,19 @@ import org.springframework.stereotype.Component;
 /**
  * Computes the US National Weather Service heat index ("apparent temperature").
  *
- * <p>This is the measurement at the bottom of everything else ShadeClock does. If it is
- * wrong, every break schedule built on it is wrong, so it is implemented directly from the
- * published NWS algorithm and tested against known reference values rather than
- * approximated.
+ * <p>Everything else rests on this: if it is wrong, every break schedule is wrong. So it is
+ * implemented directly from the published NWS algorithm and tested against chart values.
  *
- * <h2>The algorithm, exactly as NWS specifies it</h2>
- * <ol>
- *   <li>Compute a simple formula first:
- *       {@code HIs = 0.5 * (T + 61.0 + (T - 68.0) * 1.2 + RH * 0.094)}</li>
- *   <li>Average that with the air temperature. If {@code (HIs + T) / 2 < 80°F}, the simple
- *       value is the answer and we stop. The regression below is not valid down there.</li>
- *   <li>Otherwise apply the <b>Rothfusz regression</b>, a multiple-regression fit described
- *       in NWS Technical Attachment SR 90-23 (1990).</li>
- *   <li>Apply two correction bands where the regression is known to misbehave:
- *       a subtraction in very dry heat, an addition in humid moderate heat.</li>
- * </ol>
+ * <p>Algorithm: compute {@code HIs = 0.5 * (T + 61.0 + (T - 68.0) * 1.2 + RH * 0.094)};
+ * if {@code (HIs + T) / 2 < 80°F} that simple value is the answer, because the regression is
+ * not valid below there. Otherwise apply the <b>Rothfusz regression</b> (NWS Technical
+ * Attachment SR 90-23, 1990) plus two correction bands where it misbehaves - a subtraction
+ * in very dry heat, an addition in humid moderate heat.
  *
- * <h2>Two limits that must never be hidden from users</h2>
- * <ul>
- *   <li><b>The regression carries a stated error of ±1.3°F.</b> A heat index is therefore
- *       never presented as an exact figure anywhere in this application.</li>
- *   <li><b>Heat index assumes shade and light wind. It does not model direct sun or
- *       radiant heat</b> from machinery, asphalt or fires. NWS states plainly that
- *       <b>exposure to full sunshine can increase heat index values by up to 15°F</b> -
- *       and full sun is exactly the condition most outdoor crews work in. A crew at a
- *       "safe" 88°F indicated may really be at 103°F, which is the NWS Danger band. This
- *       makes ShadeClock a <em>screening</em> tool, not a substitute for WBGT (wet bulb
- *       globe temperature) measurement on site.</li>
- * </ul>
- *
- * <p><b>The analogy.</b> Heat index is a <em>weather forecast for your body</em>: it tells
- * you what the air is likely to do to a person standing in the shade. WBGT is a
- * <em>thermometer held where the person actually is</em> - it accounts for sunlight, wind
- * and radiant sources. The forecast is free and available everywhere; the thermometer is
- * accurate but needs a device on site. v0.1 uses the forecast, and says so plainly.
+ * <p>⚠️ Two limits that must never be hidden from users: the <b>stated error is ±1.3°F</b>,
+ * so no heat index is exact; and it <b>assumes shade and light wind</b>, while NWS states
+ * full sun can add <b>up to 15°F</b> - a "safe" 88°F may really be 103°F, the Danger band.
+ * A screening tool, not a substitute for on-site WBGT.
  *
  * @see <a href="https://www.wpc.ncep.noaa.gov/heat_index/details_hi.html">NWS WPC -
  *      Calculating the Heat Index</a>

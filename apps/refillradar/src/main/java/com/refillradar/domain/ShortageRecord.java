@@ -6,23 +6,11 @@ import java.util.List;
 /**
  * One drug-shortage entry as published by the FDA, normalised into this application's terms.
  *
- * <p>This is an anti-corruption layer: a deliberate translation between the shape of the
- * FDA's JSON and the shape our code wants. It exists so that a field rename at the FDA
- * breaks exactly one class ({@code OpenFdaShortageSource}) instead of leaking through the
- * matcher, the alert composer and the tests.
+ * <p>An anti-corruption layer between the FDA's JSON shape and ours, so a field rename
+ * upstream breaks one class rather than leaking into the matcher and every test. Field
+ * names mirror openFDA's published searchable fields.
  *
- * <p>Field names mirror openFDA's published searchable fields for
- * {@code /drug/shortages.json}: {@code generic_name}, {@code proprietary_name},
- * {@code company_name}, {@code status}, {@code availability}, {@code shortage_reason},
- * {@code therapeutic_category}, {@code dosage_form}, {@code strength} and the various date
- * fields.
- *
- * <p><b>Why a {@code record}?</b> A Java record is an immutable data carrier: the compiler
- * writes the constructor, accessors, {@code equals}, {@code hashCode} and {@code toString}
- * for us. Think of it as the difference between a <em>printed receipt</em> and a
- * <em>whiteboard</em>. A receipt records what happened and cannot be quietly edited
- * afterwards; a whiteboard can be changed by anyone who walks past. Data pulled from an
- * external feed should be a receipt.
+ * <p>A {@code record} because data pulled from an external feed should be immutable.
  *
  * @param genericName         active-ingredient name, e.g. {@code "amphetamine aspartate"}
  * @param proprietaryName     brand name if the FDA supplied one, e.g. {@code "Adderall"};

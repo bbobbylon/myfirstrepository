@@ -10,12 +10,9 @@ import com.refillradar.domain.ShortageMatch;
 /**
  * Turns matches into the words a patient actually reads.
  *
- * <h2>The most important class for staying on the right side of a legal line</h2>
- * RefillRadar is an <em>information</em> tool, not a medical device and not a source of
- * medical advice. That distinction is not decided by a disclaimer at the bottom of an
- * email - it is decided by what the sentences in that email actually say.
- *
- * <p>Three rules govern every string produced here, and they are not stylistic preferences:
+ * <p>RefillRadar is an <em>information</em> tool, not a medical device. That distinction is
+ * decided by what these sentences say, not by a disclaimer at the bottom. Three rules
+ * govern every string here:
  *
  * <ol>
  *   <li><b>Never name an alternative drug.</b> Suggesting a substitute is a clinical
@@ -27,7 +24,7 @@ import com.refillradar.domain.ShortageMatch;
  *       pharmacist or prescriber and states where the data came from and when.</li>
  * </ol>
  *
- * <p>The product goal is to hand the patient a <em>well-framed question</em>, not an answer.
+ * <p>The goal is to hand the patient a <em>well-framed question</em>, not an answer.
  */
 @Service
 public class AlertComposer {

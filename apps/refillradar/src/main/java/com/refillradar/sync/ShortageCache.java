@@ -14,22 +14,14 @@ import com.refillradar.domain.ShortageRecord;
 /**
  * Holds the last shortage feed we successfully fetched, and how old it is.
  *
- * <h2>Why a cache is a safety feature here, not a performance one</h2>
- * {@code ShortageFetchException}'s documentation has always said that a failed fetch must
- * leave the previous data in place rather than being treated as "no shortages exist". Until
- * v0.2 that was only a comment - there was nothing to leave in place, because every request
- * fetched afresh and an outage meant no answer at all.
- *
- * <p>This class makes that promise real. A nightly sync that fails does <b>not</b> clear
- * what we already knew. Yesterday's feed, clearly labelled as yesterday's, is far better
- * than silence: shortages persist for months, so day-old data is very nearly as useful,
- * whereas an empty result would read as an all-clear.
- *
- * <p>The staleness is surfaced rather than hidden, because "we last heard from the FDA six
- * days ago" is something a person relying on this deserves to know.
+ * <p>A safety feature, not a performance one. A failed sync does <b>not</b> clear what we
+ * already knew: shortages persist for months, so yesterday's feed clearly labelled as
+ * yesterday's is far better than silence, whereas an empty result reads as an all-clear.
+ * Staleness is surfaced rather than hidden - "we last heard from the FDA six days ago" is
+ * something a person relying on this deserves to know.
  *
  * <p>Thread-safe via {@link AtomicReference}: the scheduled sync writes while HTTP requests
- * read, and a torn read here would mean serving half a feed.
+ * read, and a torn read would mean serving half a feed.
  */
 @Component
 public class ShortageCache {

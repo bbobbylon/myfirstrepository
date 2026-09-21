@@ -11,21 +11,13 @@ import com.renewalguard.domain.EnrollmentCategory;
 /**
  * Produces the list of documents a renewal is likely to ask for.
  *
- * <h2>Why a checklist and not a document upload, in v0.1</h2>
- * The original proposal for RenewalGuard included an encrypted "document locker" holding
- * photographs of pay stubs, leases and IDs. <b>That is deliberately not built here</b>, and
- * the reasoning is worth stating plainly rather than quietly dropping the feature.
+ * <p><b>A checklist, not a document locker.</b> The proposal called for encrypted storage of
+ * pay stubs, leases and IDs - deliberately not built. That concentrates exactly what an
+ * identity thief wants, belonging to people least able to absorb it, and doing it responsibly
+ * needs key management, retention limits and a security review.
  *
- * <p>Storing identity documents for low-income households concentrates exactly the data an
- * identity thief wants, belonging to the people least able to absorb the consequences. Doing
- * it responsibly needs encryption at rest and in transit, key management, retention limits,
- * access logging and a real security review - none of which is a v0.1 afternoon's work, and
- * all of which is worse than useless if done badly.
- *
- * <p>So v0.1 ships the 80% of the value that carries none of that risk: <b>tell people
- * exactly what to find, and let them tick it off.</b> The checklist is what turns "renew your
- * coverage" from a vague dread into ten minutes of rummaging. Actually holding the files is a
- * v0.2 feature with a security review attached.
+ * <p>v0.1 ships the value that carries none of that risk: tell people what to find and where
+ * it usually lives. Holding the files is v0.2, with a security review attached.
  *
  * <p><b>What this class never does:</b> it never says whether the documents will qualify
  * someone. Eligibility is the agency's determination. A tool that implied otherwise could

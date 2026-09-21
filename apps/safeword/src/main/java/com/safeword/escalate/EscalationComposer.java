@@ -5,15 +5,10 @@ import org.springframework.stereotype.Service;
 /**
  * Writes the message sent to a family circle when someone asks for help.
  *
- * <h2>Make asking cost one tap and require no explanation</h2>
- * Many victims never tell anyone, and embarrassment is a large part of why. A person
- * mid-call, half-believing a convincing story, is not going to compose a message explaining
- * their situation - so SafeWord composes it for them, in neutral words that carry no
- * admission of having been fooled.
- *
- * <p>The message deliberately does <b>not</b> say "Mum is being scammed". It says she wants a
- * call. If the call turns out to be genuine, nobody has been embarrassed, and the feature
- * stays cheap to use again. A tool that costs dignity to use gets used once.
+ * <p>Embarrassment is a large part of why victims never tell anyone, so the message carries
+ * no admission of having been fooled: it says the person wants a call, never "Mum is being
+ * scammed". If the call turns out to be genuine, nobody has lost face and the feature stays
+ * cheap to use again. A tool that costs dignity to use gets used once.
  */
 @Service
 public class EscalationComposer {
@@ -44,10 +39,8 @@ public class EscalationComposer {
     }
 
     /**
-     * What the person who pressed the button sees afterwards.
-     *
-     * <p>Reassurance, and a bridge to the safest action - so the screen is useful in the
-     * seconds before anyone actually rings back.
+     * What the person who pressed the button sees afterwards: reassurance plus the safest
+     * next action, so the screen is useful in the seconds before anyone rings back.
      *
      * @param responderCount how many people were notified
      * @return the confirmation, never {@code null}

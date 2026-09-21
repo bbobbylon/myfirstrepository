@@ -24,11 +24,9 @@ import com.refillradar.store.ContactRepository;
  * of the work: confirm the from-address is accepted, check deliverability, and watch what
  * lands in spam folders - a shortage warning in a junk folder is a warning nobody receives.
  *
- * <h2>Why SMS matters more than email for this audience, and is still not built</h2>
- * RefillRadar's users skew older, and email is the channel that group is least reliably on.
- * SMS would reach more of them - but it carries per-message cost and US A2P 10DLC
- * registration, which is a procurement task rather than a coding one. Email first is the
- * honest sequencing; SMS is v0.3, and the README says so rather than implying parity.
+ * <p>SMS would reach this older-skewing audience more reliably, but carries per-message cost
+ * and US A2P 10DLC registration - procurement, not coding. Email first is the honest
+ * sequencing; SMS is v0.3.
  */
 @Component
 @ConditionalOnProperty(name = "refillradar.alert-channel", havingValue = "email")

@@ -3,22 +3,14 @@ package com.renewalguard.domain;
 /**
  * Which Medicaid eligibility group a person is enrolled through.
  *
- * <h2>Why this matters more from 2027 than it ever has</h2>
- * Renewal frequency used to be a single national answer: roughly annual. It is about to stop
- * being one.
+ * <p><b>P.L. 119-21 moves Medicaid expansion adults to six-month renewals</b> for renewals
+ * scheduled on or after <b>1 January 2027</b>; CMS issued guidance on 6 March 2026. Children,
+ * pregnant women, seniors and disabled enrollees stay annual - reporting puts the affected
+ * group at a little over a quarter of enrollees.
  *
- * <p><b>Public Law 119-21 requires states to redetermine eligibility for Medicaid
- * <em>expansion adults</em> every six months rather than annually</b>, applying to renewals
- * scheduled on or after <b>1 January 2027</b>. CMS issued implementation guidance to state
- * Medicaid directors on 6 March 2026. Children, pregnant women, seniors and people with
- * disabilities stay on annual cycles. Reporting puts the affected population at a little
- * over a quarter of all enrollees.
- *
- * <p>So from 2027 a household can contain two people on the same programme in the same state
- * with renewal deadlines arriving at different rates. Tracking that by memory is exactly the
- * sort of thing that produces a missed letter - and a missed letter is how roughly
- * <b>70% of Medicaid terminations</b> already happen, for people who never stopped
- * qualifying.
+ * <p>So from 2027 one household can hold two people, same programme and agency, with
+ * deadlines arriving at different rates. That is how a letter gets missed - and a missed
+ * letter is how roughly <b>70% of Medicaid terminations</b> already happen.
  *
  * <p>⚠️ Sources cite the provision as both "Section 44108" and "Section 71107" of
  * P.L. 119-21 (both describing an amendment to SSA §1902(e)(14)). The substance is

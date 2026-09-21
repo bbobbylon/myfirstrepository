@@ -10,21 +10,11 @@ import com.renewalguard.domain.EnrollmentCategory;
 /**
  * Works out how often a case renews, and therefore when the next deadline lands.
  *
- * <h2>The 2027 change this exists to handle</h2>
- * Medicaid renewal used to be effectively annual for everyone. Public Law 119-21 changes
- * that: states must redetermine <b>expansion adults every six months</b>, for renewals
- * scheduled <b>on or after 1 January 2027</b>. Everyone else stays annual.
- *
- * <p>The consequence for this class is that cadence is a function of two things, not one -
- * the enrolment category <em>and</em> the date. A household with a parent on expansion
- * coverage and a child on children's coverage will, from 2027, have deadlines arriving at
- * different rates from the same agency.
- *
- * <p><b>The analogy:</b> it is the difference between a magazine subscription that renews
- * every January and one that renews every January <em>and</em> July. Miss the second and you
- * are just as uncovered as missing the first - but nobody has a habit built around it yet,
- * because it did not exist last year. The first six-month cycle in 2027 is likely to produce
- * a spike in procedural terminations for exactly that reason.
+ * <p>Cadence is a function of <b>two</b> things, not one: the enrolment category
+ * <em>and</em> the date. P.L. 119-21 moves expansion adults to six-month renewals from
+ * 1 January 2027; everyone else stays annual. Nobody has a habit built around a second
+ * annual deadline yet, so the first six-month cycle is likely to produce a spike in
+ * procedural terminations.
  */
 @Component
 public class RenewalCadence {

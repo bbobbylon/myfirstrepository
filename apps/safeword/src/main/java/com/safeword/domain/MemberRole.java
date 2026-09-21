@@ -3,12 +3,9 @@ package com.safeword.domain;
 /**
  * What a circle member does.
  *
- * <h2>The buyer and the user are different people</h2>
- * This split reflects the hardest problem in the product, which is distribution rather than
- * code. Older adults do not browse app stores for security software. The person who installs
- * SafeWord is typically the adult child; the person it protects is their parent. The whole
- * setup flow has to be completable <em>by</em> the child <em>for</em> the parent, in one
- * sitting, possibly over the phone from another city.
+ * <p>The buyer and the user are different people: the adult child installs SafeWord, the
+ * parent is protected by it. Setup must therefore be completable by the child for the parent
+ * in one sitting, possibly over the phone from another city.
  */
 public enum MemberRole {
 

@@ -7,28 +7,15 @@ import org.springframework.stereotype.Component;
 /**
  * The fallback used where a state has no enforceable heat standard of its own.
  *
- * <h2>This encodes guidance, not law</h2>
- * As of 2026 there is no finalised federal heat standard. OSHA's proposed
- * <em>Heat Injury and Illness Prevention in Outdoor and Indoor Work Settings</em> rule was
- * published 30 August 2024, its comment period closed January 2025 and hearings ran to July
- * 2025, but the rule stalled after the January 2025 regulatory freeze with no target
- * finalisation date.
+ * <p><b>Guidance, not law.</b> There is no finalised federal heat standard, so employers in
+ * the ~43 states without their own are covered only by the General Duty Clause and OSHA's
+ * Heat National Emphasis Program. Marked {@link VerificationStatus#GUIDANCE_NOT_LAW}:
+ * presenting these as legal obligations would be false, but presenting nothing would leave
+ * most American outdoor workers with an app that shrugs.
  *
- * <p>Employers in the roughly 43 states without their own standard are therefore covered
- * only by the General Duty Clause and by OSHA's Heat National Emphasis Program - a revised
- * version of which was issued 10 April 2026, active for five years, targeting 55 high-risk
- * industries for inspection on any day the NWS issues a heat advisory.
- *
- * <p>So this ruleset is marked {@link VerificationStatus#GUIDANCE_NOT_LAW}. The thresholds
- * are drawn from the general 80°F / 90°F structure common to NWS heat guidance and to the
- * state standards, and are offered as sensible precautions. Presenting them as legal
- * obligations would be false; presenting nothing at all would be worse, because it would
- * leave the majority of American outdoor workers with an app that shrugs.
- *
- * <p>There is one genuinely evidence-backed reason to think codified rules help at all: a
- * George Washington University / Harvard study of OSHA injury data across 48 states found
- * that workers in states <em>with</em> heat standards appear to have a lower risk of injury
- * on hot days.
+ * <p>One evidence-backed reason to think codified rules help: a George Washington / Harvard
+ * study of OSHA injury data across 48 states found workers in states <em>with</em> heat
+ * standards appear to have lower injury risk on hot days.
  *
  * @see <a href="https://www.osha.gov/heat-exposure/standards">OSHA - Heat Standards</a>
  */

@@ -3,17 +3,10 @@ package com.shadeclock.crew;
 /**
  * How heat-adapted a worker currently is.
  *
- * <h2>Why this exists at all</h2>
- * Acclimatisation is the single most under-managed factor in heat illness. The body adapts
- * to working in heat over roughly one to two weeks - sweating earlier, sweating more, losing
- * less salt. A worker who has not been through that period is at materially higher risk than
- * the colleague beside them doing identical work in identical weather.
- *
- * <p>The practical consequence is that the most dangerous day is often someone's <em>first
- * day</em>, or their first day back after a holiday or illness. A foreman juggling twelve
- * people cannot reliably hold "who started on Tuesday, and who was off sick last week" in
- * their head on a 100°F afternoon. Software remembers it without effort, which is precisely
- * the kind of dull bookkeeping worth automating.
+ * <p>The body adapts to heat over one to two weeks. Someone who has not been through that
+ * is at materially higher risk than the colleague beside them doing identical work - so the
+ * most dangerous day is often a first day, or a first day back after leave. A foreman
+ * juggling twelve people cannot hold that in their head on a 100°F afternoon; software can.
  *
  * <p>⚠️ The day counts below are ShadeClock's own bands, chosen to line up with the
  * commonly-cited one-to-two-week adaptation window. They are <b>not</b> lifted from a
