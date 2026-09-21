@@ -7,12 +7,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.refillradar.auth.AccountPrincipal;
 import com.refillradar.domain.Medication;
 import com.refillradar.domain.ShortageMatch;
 import com.refillradar.domain.ShortageRecord;
@@ -35,11 +37,12 @@ import jakarta.validation.Valid;
  * nothing else - all real logic lives in {@link ShortageMatcher} and friends, which is what
  * makes that logic testable without starting a web server.
  *
- * <p><b>No authentication in v0.1.</b> {@code userId} is passed in the clear and trusted.
- * That is acceptable only for a local prototype and must be fixed before this is exposed to
- * anyone: a medication list is sensitive health information, and right now any caller can
- * read any user's list by guessing an id. This is called out here, in the code, rather than
- * left as an unwritten assumption.
+ * <p><b>Every route here is authenticated, and none of them accepts a user id.</b> Through
+ * v0.3 the id arrived as a path variable or a body field and was trusted, so any caller
+ * could read, extend or delete anyone's medication list. v0.4 fixes that by deletion rather
+ * than by validation: the owner is read from {@link AccountPrincipal}, which comes from the
+ * session cookie, and there is no request field left that could disagree with it. See
+ * {@link AccountPrincipal} for why removing the parameter beats checking it.
  */
 @RestController
 @RequestMapping("/api")
@@ -83,16 +86,22 @@ public class RefillRadarController {
     }
 
     /**
-     * Registers a medication.
+     * Registers a medication against the logged-in account.
      *
-     * @param request the medication to add; validated before this method runs
+     * @param request   the medication to add; validated before this method runs
+     * @param principal the logged-in account, from the session
      * @return {@code 201 Created} with the stored medication
      */
     @PostMapping("/medications")
-    public ResponseEntity<Medication> addMedication(@Valid @RequestBody MedicationRequest request) {
+    public ResponseEntity<Medication> addMedication(
+            @Valid @RequestBody MedicationRequest request,
+            @AuthenticationPrincipal AccountPrincipal principal) {
+
         Medication medication = new Medication(
                 UUID.randomUUID().toString(),
-                request.userId(),
+                // Not request.userId(). That field no longer exists, which is the point:
+                // a caller cannot file a medication under someone else's account.
+                principal.accountId(),
                 request.displayName(),
                 request.searchTerm(),
                 request.lastFilledOn(),
@@ -102,24 +111,41 @@ public class RefillRadarController {
     }
 
     /**
-     * Lists a user's medications.
+     * Lists the logged-in account's medications.
      *
-     * @param userId the owner
-     * @return the user's medications, possibly empty
+     * @param principal the logged-in account, from the session
+     * @return that account's medications, possibly empty
      */
-    @GetMapping("/users/{userId}/medications")
-    public List<Medication> listMedications(@PathVariable String userId) {
-        return repository.findByUserId(userId);
+    @GetMapping("/me/medications")
+    public List<Medication> listMedications(@AuthenticationPrincipal AccountPrincipal principal) {
+        return repository.findByUserId(principal.accountId());
     }
 
     /**
-     * Removes a medication.
+     * Removes one of the logged-in account's medications.
      *
-     * @param id the medication id
+     * <p>Unlike the other routes, this one still takes an id - a medication id, which is the
+     * thing being deleted, so it cannot be dropped. Through v0.3 it was <b>not checked at
+     * all</b>: any caller who knew or guessed a UUID could delete any user's record. The
+     * ownership check below is what closes that.
+     *
+     * <p>A medication belonging to someone else returns {@code 404}, not {@code 403}.
+     * {@code 403} would confirm the id exists, letting a caller map out other people's
+     * records one guess at a time. If it is not yours, it is not there.
+     *
+     * @param id        the medication id
+     * @param principal the logged-in account, from the session
      * @return {@code 204 No Content} if removed, {@code 404 Not Found} otherwise
      */
     @DeleteMapping("/medications/{id}")
-    public ResponseEntity<Void> deleteMedication(@PathVariable String id) {
+    public ResponseEntity<Void> deleteMedication(@PathVariable String id,
+                                                 @AuthenticationPrincipal AccountPrincipal principal) {
+        boolean ownedByCaller = repository.findByUserId(principal.accountId()).stream()
+                .anyMatch(medication -> medication.id().equals(id));
+
+        if (!ownedByCaller) {
+            return ResponseEntity.notFound().build();
+        }
         return repository.deleteById(id)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
@@ -132,11 +158,12 @@ public class RefillRadarController {
      * purpose sees the full picture. The stricter {@code warrantsAlert} filter governs what
      * we <em>push</em> to them unprompted - asking is different from being interrupted.
      *
-     * @param userId the user to check
+     * @param principal the logged-in account, from the session
      * @return the check result, including provenance and counts even when nothing matched
      */
-    @GetMapping("/users/{userId}/supply-check")
-    public SupplyCheckResponse checkSupply(@PathVariable String userId) {
+    @GetMapping("/me/supply-check")
+    public SupplyCheckResponse checkSupply(@AuthenticationPrincipal AccountPrincipal principal) {
+        String userId = principal.accountId();
         List<Medication> medications = repository.findByUserId(userId);
         List<ShortageRecord> shortages = shortageSource.fetchCurrentShortages();
         List<ShortageMatch> matches = matcher.findMatches(medications, shortages);
@@ -217,27 +244,32 @@ public class RefillRadarController {
     }
 
     /**
-     * Records where a user's alerts should be sent.
+     * Records where the logged-in account's alerts should be sent.
      *
-     * @param userId  the user
-     * @param request the contact details
+     * <p>Was {@code /users/{userId}/contact}, which let any caller redirect another user's
+     * shortage alerts to an address of their choosing - a way to both silence someone's
+     * warnings and read their medication news.
+     *
+     * @param request   the contact details
+     * @param principal the logged-in account, from the session
      * @return {@code 204 No Content}
      */
-    @PostMapping("/users/{userId}/contact")
-    public ResponseEntity<Void> setContact(@PathVariable String userId,
-                                           @RequestBody ContactRequest request) {
-        contacts.setEmail(userId, request.email());
+    @PostMapping("/me/contact")
+    public ResponseEntity<Void> setContact(@RequestBody ContactRequest request,
+                                           @AuthenticationPrincipal AccountPrincipal principal) {
+        contacts.setEmail(principal.accountId(), request.email());
         return ResponseEntity.noContent().build();
     }
 
     /**
-     * Where a user's alerts would go.
+     * Where the logged-in account's alerts would go.
      *
-     * @param userId the user
+     * @param principal the logged-in account, from the session
      * @return reachability, so a UI can prompt for an address before promising alerts
      */
-    @GetMapping("/users/{userId}/contact")
-    public ContactStatus contactStatus(@PathVariable String userId) {
+    @GetMapping("/me/contact")
+    public ContactStatus contactStatus(@AuthenticationPrincipal AccountPrincipal principal) {
+        String userId = principal.accountId();
         return new ContactStatus(
                 contacts.isReachable(userId),
                 contacts.findEmail(userId).orElse(null),

@@ -21,6 +21,7 @@ import com.refillradar.alert.AlertRecordStore;
 import com.refillradar.domain.Medication;
 import com.refillradar.domain.SupplyRisk;
 import com.refillradar.support.DatabaseCleaner;
+import com.refillradar.support.TestAccounts;
 
 /**
  * Proves that v0.3 storage actually reaches PostgreSQL and comes back unchanged.
@@ -45,6 +46,9 @@ class PersistenceIntegrationTest {
     private ContactRepository contacts;
 
     @Autowired
+    private AccountRepository accounts;
+
+    @Autowired
     private AlertRecordStore alertRecords;
 
     @Autowired
@@ -58,7 +62,17 @@ class PersistenceIntegrationTest {
         databaseCleaner.clean();
     }
 
-    private Medication medication(String id, String userId) {
+    /**
+     * Stores a medication, creating its owning account first.
+     *
+     * <p>Since V2, {@code medications.user_id} is a foreign key. A test that skips this step
+     * gets a constraint violation rather than a stored row - which is the constraint doing
+     * its job, because before V2 a medication could name an account that never existed.
+     */
+    private Medication medicationOwnedBy(String id, String userId) {
+        if (accounts.findById(userId).isEmpty()) {
+            accounts.save(TestAccounts.user(userId, userId + "-name"));
+        }
         return new Medication(id, userId, "Keppra 500mg", "levetiracetam", LAST_FILLED, 30);
     }
 
@@ -81,7 +95,7 @@ class PersistenceIntegrationTest {
     @Test
     @DisplayName("a saved medication comes back with every field intact")
     void medicationRoundTrips() {
-        medications.save(medication("m1", "robert"));
+        medications.save(medicationOwnedBy("m1", "robert"));
 
         Medication found = medications.findByUserId("robert").getFirst();
 
@@ -100,8 +114,8 @@ class PersistenceIntegrationTest {
         // A security property, not a convenience. It is asserted here rather than assumed
         // from the method name, because the method name is generated into SQL by Spring Data
         // and a rename would change the query silently.
-        medications.save(medication("m1", "robert"));
-        medications.save(medication("m2", "someone-else"));
+        medications.save(medicationOwnedBy("m1", "robert"));
+        medications.save(medicationOwnedBy("m2", "someone-else"));
 
         assertThat(medications.findByUserId("robert")).hasSize(1);
         assertThat(medications.findByUserId("robert").getFirst().id()).isEqualTo("m1");
@@ -111,7 +125,7 @@ class PersistenceIntegrationTest {
     @Test
     @DisplayName("saving the same id twice replaces rather than duplicating")
     void saveIsIdempotentOnId() {
-        medications.save(medication("m1", "robert"));
+        medications.save(medicationOwnedBy("m1", "robert"));
         medications.save(new Medication("m1", "robert", "Keppra 750mg", "levetiracetam",
                 LAST_FILLED, 30));
 
@@ -123,7 +137,7 @@ class PersistenceIntegrationTest {
     @Test
     @DisplayName("deleting an unknown id reports false rather than pretending")
     void deleteReportsWhetherAnythingWasRemoved() {
-        medications.save(medication("m1", "robert"));
+        medications.save(medicationOwnedBy("m1", "robert"));
 
         assertThat(medications.deleteById("does-not-exist")).isFalse();
         assertThat(medications.deleteById("m1")).isTrue();
@@ -136,6 +150,8 @@ class PersistenceIntegrationTest {
         // Medication's compact constructor already rejects this, so the only way to reach
         // the constraint is to go round it - exactly what a bulk import or a repair script
         // would do. This asserts the defence in depth is real and not decorative.
+        accounts.save(TestAccounts.user("robert", "robert-name"));
+
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO medications (id, user_id, display_name, search_term, "
                         + "last_filled_on, days_supply) VALUES (?, ?, ?, ?, ?, ?)",
@@ -147,6 +163,7 @@ class PersistenceIntegrationTest {
     @Test
     @DisplayName("a contact round-trips and isReachable reflects the database")
     void contactRoundTrips() {
+        accounts.save(TestAccounts.user("robert", "robert-name"));
         assertThat(contacts.isReachable("robert")).isFalse();
 
         contacts.setEmail("robert", "robert@example.invalid");

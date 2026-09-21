@@ -40,9 +40,16 @@ public class DatabaseCleaner {
      *
      * <p>Deliberately does not touch {@code flyway_schema_history} - wiping that would make
      * the next startup try to re-run migrations against a schema that already exists.
+     *
+     * <p>{@code users} is truncated in the same statement as the tables that reference it.
+     * PostgreSQL refuses to truncate a table another table points at unless the referring
+     * tables go in the same command, so the list is not merely a convenience.
      */
     @Transactional
     public void clean() {
-        jdbc.execute("TRUNCATE TABLE medications, contacts, alert_records");
+        jdbc.execute("TRUNCATE TABLE medications, contacts, alert_records, users");
+        // Sessions reference nothing, but a leftover login from a previous test would make
+        // an "unauthenticated request is refused" assertion pass or fail by accident.
+        jdbc.execute("TRUNCATE TABLE SPRING_SESSION CASCADE");
     }
 }

@@ -14,8 +14,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.refillradar.domain.Account;
 import com.refillradar.shortage.ShortageFetchException;
 import com.refillradar.shortage.ShortageSource;
+import com.refillradar.support.Auth;
+import com.refillradar.support.TestAccounts;
 
 /**
  * Verifies that a failure to reach the FDA never renders as reassurance.
@@ -38,13 +41,15 @@ class ShortageSourceExceptionHandlerTest {
     @MockitoBean
     private ShortageSource shortageSource;
 
+    private final Account robert = TestAccounts.user("robert");
+
     @Test
     @DisplayName("a failed fetch returns 503, not 500 and not an empty all-clear")
     void failedFetchReturns503() throws Exception {
         given(shortageSource.fetchCurrentShortages())
                 .willThrow(new ShortageFetchException("openFDA unreachable"));
 
-        mockMvc.perform(get("/api/users/robert/supply-check"))
+        mockMvc.perform(get("/api/me/supply-check").with(Auth.as(robert)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error").value("shortage_data_unavailable"));
     }
@@ -58,7 +63,7 @@ class ShortageSourceExceptionHandlerTest {
         // The single most important assertion in this class. An outage must never be
         // mistakable for good news - that is the failure this whole application exists
         // to prevent, so it must not be reintroduced by the error path.
-        mockMvc.perform(get("/api/users/robert/supply-check"))
+        mockMvc.perform(get("/api/me/supply-check").with(Auth.as(robert)))
                 .andExpect(jsonPath("$.important")
                         .value(Matchers.containsString("NOT an all-clear")))
                 .andExpect(jsonPath("$.checkedAt").exists());

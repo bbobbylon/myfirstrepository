@@ -173,12 +173,70 @@ jobs:
             sleep 1
           done
 
-          echo "--- GET /api/users/ci-smoke-test/supply-check ---"
-          # --retry-all-errors is the load-bearing flag here; see above.
-          if ! curl --fail --silent --show-error \
-                    --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
-                    localhost:8080/api/users/ci-smoke-test/supply-check -o response.json; then
-            echo "::error::Endpoint did not respond. Container logs follow:"
+          # ---- 1. An unauthenticated request must be REFUSED ------------------------
+          # First assertion, deliberately. Everything below proves the happy path works;
+          # only this one proves the closed path stays closed. --retry-all-errors is the
+          # load-bearing flag here; see above.
+          echo "--- GET /api/me/supply-check with no credentials (expect 401) ---"
+          ANON_STATUS=$(curl --silent --show-error --output anon.json --write-out '%{http_code}' \
+                             --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
+                             localhost:8080/api/me/supply-check)
+          if [ "$ANON_STATUS" != "401" ]; then
+            echo "::error::Anonymous request returned $ANON_STATUS, expected 401. A medication list must never be readable without logging in."
+            cat anon.json
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: anonymous access refused with 401"
+
+          # ---- 2. An anonymous request must not create a session --------------------
+          # Regression guard for a real bug found by probing a running server: Spring
+          # Security's default RequestCache stashed every rejected request in a NEW session,
+          # so 20 unauthenticated GETs made 20 SPRING_SESSION rows - a way to grow the
+          # database with no credentials. It lives here rather than in a unit test because
+          # MockMvc does not reproduce a real container's session handling.
+          for i in $(seq 1 10); do
+            curl --silent --output /dev/null localhost:8080/api/me/supply-check
+          done
+          ANON_SESSIONS=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
+            "SELECT count(*) FROM SPRING_SESSION")
+          if [ "$ANON_SESSIONS" != "0" ]; then
+            echo "::error::10 anonymous requests created $ANON_SESSIONS session rows, expected 0. Unauthenticated traffic must not consume storage."
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: 10 anonymous requests created 0 sessions"
+
+          # ---- 3. Register, log in, and read our own data ---------------------------
+          echo "--- register + login ---"
+          curl --fail --silent --show-error -c jar.txt -X POST localhost:8080/api/auth/register \
+               -H 'Content-Type: application/json' \
+               -d '{"username":"ci-smoke-test","password":"a-long-enough-ci-passphrase"}' \
+               -o register.json || {
+            echo "::error::Registration failed"; cat register.json; docker logs refillradar
+            docker rm -f refillradar refillradar-db; exit 1; }
+
+          curl --fail --silent --show-error -c jar.txt -b jar.txt -X POST localhost:8080/api/auth/login \
+               -H 'Content-Type: application/json' \
+               -d '{"username":"ci-smoke-test","password":"a-long-enough-ci-passphrase"}' \
+               -o login.json || {
+            echo "::error::Login failed"; cat login.json; docker logs refillradar
+            docker rm -f refillradar refillradar-db; exit 1; }
+
+          # The response must never echo the password back in any form.
+          if grep -qi "passphrase" register.json login.json; then
+            echo "::error::A credential appeared in an auth response body"
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: registered and logged in; no credential in the response"
+
+          echo "--- GET /api/me/supply-check as the logged-in user ---"
+          if ! curl --fail --silent --show-error -b jar.txt \
+                    localhost:8080/api/me/supply-check -o response.json; then
+            echo "::error::Authenticated request failed. Container logs follow:"
             docker logs refillradar
             docker rm -f refillradar refillradar-db
             exit 1
@@ -199,7 +257,7 @@ jobs:
           TABLES=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public'")
           echo "tables: $TABLES"
-          for table in alert_records contacts flyway_schema_history medications; do
+          for table in alert_records contacts flyway_schema_history medications users spring_session; do
             if ! echo "$TABLES" | grep -q "$table"; then
               echo "::error::Expected table '$table' is missing - Flyway did not run"
               docker logs refillradar
@@ -208,5 +266,5 @@ jobs:
             fi
           done
 
-          echo "Smoke test passed: container builds, boots as non-root, migrates its database, and serves a real response."
+          echo "Smoke test passed: container builds, boots as non-root, migrates its database, refuses anonymous access, and serves a real response to a logged-in user."
           docker rm -f refillradar refillradar-db

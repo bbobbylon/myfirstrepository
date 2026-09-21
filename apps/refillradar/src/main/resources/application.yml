@@ -37,8 +37,31 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  session:
+    store-type: jdbc
+    timeout: 30m
+    jdbc:
+      # never: Flyway created SPRING_SESSION in V2. Two things creating the same tables is
+      # how they drift apart, and the loser is whichever ran second.
+      initialize-schema: never
+
 server:
   port: 8080
+  servlet:
+    session:
+      cookie:
+        # The session cookie is the credential. JavaScript has no reason to read it, so
+        # HttpOnly means an XSS bug cannot steal a login.
+        http-only: true
+        # Strict: the browser will not attach this cookie to a request originating from
+        # another site, which is the main structural defence against CSRF. The token check
+        # in SecurityConfig is the second.
+        same-site: strict
+        # MUST be true anywhere this is served over HTTPS - otherwise the session cookie
+        # travels in the clear on any accidental http:// request. Defaults to false only so
+        # that http://localhost works; the application logs a warning at startup when it is
+        # false, so the insecure setting is visible on every boot rather than buried here.
+        secure: ${SESSION_COOKIE_SECURE:false}
 
 refillradar:
   # `fixture` = replay the bundled recorded response (offline, deterministic)

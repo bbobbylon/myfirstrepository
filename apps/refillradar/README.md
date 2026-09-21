@@ -32,7 +32,7 @@ JDK 21+, Maven 3.9+, PostgreSQL 14+. No network, no API key.
 # One-time: create the database the defaults expect
 createdb refillradar && createuser refillradar   # or see Deployment for the psql version
 
-mvn test                # 117 tests, ~15s
+mvn test                # 133 tests, ~20s
 mvn spring-boot:run     # :8080
 ```
 
@@ -40,13 +40,25 @@ No PostgreSQL to hand? `--spring.profiles.active=memory` runs everything in RAM.
 demo mode, not a deployment mode — **it loses all data on restart, including the alert
 ledger, so a restarted instance re-sends every alert it has ever sent.**
 
+Everything below needs a session, so register once and keep the cookie jar:
+
 ```bash
-curl -X POST localhost:8080/api/medications -H 'Content-Type: application/json' \
-  -d '{"userId":"robert","displayName":"Keppra 500mg","searchTerm":"Keppra",
+curl -c jar -X POST localhost:8080/api/auth/register -H 'Content-Type: application/json' \
+  -d '{"username":"robert","password":"a-memorable-passphrase"}'
+curl -c jar -b jar -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"robert","password":"a-memorable-passphrase"}'
+
+# State-changing requests also need the CSRF token from the XSRF-TOKEN cookie.
+TOKEN=$(awk '/XSRF-TOKEN/ {print $7}' jar)
+curl -b jar -H "X-XSRF-TOKEN: $TOKEN" \
+  -X POST localhost:8080/api/medications -H 'Content-Type: application/json' \
+  -d '{"displayName":"Keppra 500mg","searchTerm":"Keppra",
        "lastFilledOn":"2026-09-01","daysSupply":24}'
 
-curl -s localhost:8080/api/users/robert/supply-check | python3 -m json.tool
+curl -s -b jar localhost:8080/api/me/supply-check | python3 -m json.tool
 ```
+
+Note there is no `userId` anywhere — the session decides whose list this is.
 
 ```
 Keppra 500mg   runs out 2026-09-25   6 days   CRITICAL  "Contact your prescriber today."
@@ -118,6 +130,62 @@ passed with the window logic deleted** — each ledger had its own store, so it 
 assert *something* was recorded. Splitting policy from storage made the honest version
 writable: one store, two clocks, both sides of the boundary asserted.
 
+## v0.4: authentication, and why the routes changed shape
+
+v0.3's limitation table said "no authentication; `userId` is trusted in the clear". In
+practice that meant **any caller could read, extend or delete anyone's medication list** by
+naming their id, and `DELETE /api/medications/{id}` checked nothing at all — knowing a UUID
+was enough to destroy someone else's record.
+
+The repair is not a check on every endpoint. It is removing the thing being checked:
+
+```
+v0.3   GET /api/users/{userId}/supply-check     ← client picks whose data
+v0.4   GET /api/me/supply-check                 ← the session picks
+```
+
+You cannot have an insecure direct object reference if there is no direct object reference.
+A check you must remember to write on every route is a check you will one day forget on one;
+a parameter that does not exist cannot be forgotten. `MedicationRequest` lost its `userId`
+field for the same reason, and a test asserts that smuggling one into the JSON changes
+nothing.
+
+**Sessions, not JWTs.** A JWT cannot be revoked before it expires, and "log me out
+everywhere" and "my phone was stolen" both need to take effect now. The usual fix — a
+server-side denylist — reintroduces exactly the shared state that made JWTs attractive. A
+session id is opaque and means nothing except as a row in a table, so revoking it is a
+`DELETE`. v0.3 put PostgreSQL there anyway, and Spring Session JDBC means a deploy no longer
+logs everyone out.
+
+Other decisions worth the words:
+
+- **A delegating password encoder**, so hashes store the algorithm that made them
+  (`{bcrypt}$2a$10$…`). Switching to argon2id later then means new passwords use it and old
+  ones still verify — no forced reset.
+- **Passwords capped at 72 bytes and rejected above it.** BCrypt silently ignores the rest,
+  so two passphrases sharing a 72-byte prefix would open the same account. Truncating
+  quietly would mean storing something the person did not choose.
+- **No composition rules.** NIST SP 800-63B advises against them, and the reason is
+  behavioural: they reliably produce `Password1!`. Length is the requirement that helps.
+- **Login answers identically** for a wrong password and an unknown user; otherwise the form
+  enumerates who has an account here, which is who is managing a medication.
+- **Not-yours returns 404, not 403.** A 403 confirms the id is real.
+- **CSRF stays on.** "It's a JSON API" is not a reason to disable it — the browser attaches
+  the session cookie to a cross-site POST regardless of content type.
+
+> **A bug found by probing, not by reading.** With the config apparently correct, 20
+> unauthenticated requests left 20 rows in `SPRING_SESSION`: Spring Security's default
+> `RequestCache` stashes every rejected request in a new session so a form login can replay
+> it. For a JSON API that is an unauthenticated way to grow the database. Disabling the
+> request cache took it to 0, measured the same way. The regression guard lives in the CI
+> smoke test rather than a unit test, because MockMvc keeps its own session bookkeeping and
+> does not reproduce a real container's here — a test that passes in a simulation the
+> production path does not share is worse than no test.
+
+The 16 security tests are written as **attacks that used to succeed**, not as feature
+checks. Two were verified by re-introducing the original bugs and confirming the tests go
+red.
+
 ## How matching works
 
 A user types `Adderall XR 10mg`. The FDA publishes
@@ -141,16 +209,22 @@ Two more decisions:
 
 ## API
 
-| Method | Path | |
-|---|---|---|
-| `POST` | `/api/medications` | Register a medication |
-| `GET` | `/api/users/{id}/medications` | List |
-| `DELETE` | `/api/medications/{id}` | Remove |
-| `GET` | `/api/users/{id}/supply-check` | **Main endpoint** |
-| `GET` | `/api/debug/normalize?name=X` | How a drug name was interpreted |
-| `POST` | `/api/admin/sync` | Run the nightly sync now |
-| `GET` | `/api/sync/status` | Age of the cached feed |
-| `POST`/`GET` | `/api/users/{id}/contact` | Where alerts go / is the user reachable |
+| Method | Path | Auth | |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | — | Create an account |
+| `POST` | `/api/auth/login` | — | Start a session |
+| `POST` | `/api/auth/logout` | session | End it |
+| `GET` | `/api/auth/me` | session | Who am I |
+| `POST` | `/api/medications` | session | Register a medication |
+| `GET` | `/api/me/medications` | session | List |
+| `DELETE` | `/api/medications/{id}` | session | Remove (yours only) |
+| `GET` | `/api/me/supply-check` | session | **Main endpoint** |
+| `GET` | `/api/debug/normalize?name=X` | session | How a drug name was interpreted |
+| `POST` | `/api/admin/sync` | **ADMIN** | Run the nightly sync now |
+| `GET` | `/api/sync/status` | session | Age of the cached feed |
+| `POST`/`GET` | `/api/me/contact` | session | Where alerts go / is the user reachable |
+
+**`/api/users/{id}/...` is gone.** Not guarded — gone. See the v0.4 section below.
 
 `/api/debug/normalize` exists because the worst failure here is silent: if the normaliser
 has never heard of a brand, nothing matches and the app looks fine while protecting nobody.
@@ -176,6 +250,12 @@ Defaulting to `fixture` means a misconfigured deploy fails towards **obviously f
 
 ## Deployment
 
+> **Upgrading from v0.3: `V2` deletes existing rows.** Pre-v0.4 medications and contacts
+> carry a `user_id` that was an unauthenticated free-text string, not an identity — there is
+> no account they could belong to, and inventing one would be worse than dropping them. This
+> is safe only because no deployment has ever held real data; on a system that had, that step
+> would be a reconciliation exercise rather than a `DELETE`.
+
 ### Local
 
 ```bash
@@ -194,6 +274,12 @@ java -jar target/*.jar --spring.profiles.active=memory            # no database,
 Override with `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD`. **Passwords go in a
 secret manager, never in the image or the repo** — the defaults above exist so a laptop
 works out of the box and are not credentials for anything real.
+
+**`SESSION_COOKIE_SECURE=true` is required for any deployment served over HTTPS.** It
+defaults to `false` so `http://localhost` can log in at all; left false behind TLS, the
+session cookie — which *is* the credential — can travel in plaintext. The application logs
+a warning naming this setting on every boot where it is false, so the insecure state is
+visible in the logs rather than buried in a config file nobody re-reads.
 
 ### Container
 
@@ -243,22 +329,25 @@ Secrets go in GitHub Actions Secrets, never the repo. Tag images with the commit
 |---|---|---|
 | 1 | **Never verified against the live FDA API** — `api.fda.gov` unreachable here | Field names, date formats and the `status` vocabulary need confirming on first live run |
 | 2 | **Brand mapping is 20 hand-seeded entries.** Real answer is RxNorm | Unknown brands cause **false negatives** — the dangerous direction. Mitigated by `/debug/normalize` |
-| 3 | **No authentication.** `userId` is trusted in the clear | Anyone can read anyone's list. **Must fix before exposure** — and now that the data persists, this is the single most urgent item here |
+| 3 | ~~No authentication~~ — **resolved in v0.4** | |
 | 4 | ~~In-memory storage~~ — **resolved in v0.3** | |
 | 5 | ~~No scheduled sync~~ — **resolved in v0.2** | |
 | 6 | **Fixture is hand-written**, not a real capture | Labelled in the file itself |
 | 7 | **Email never tested against real SMTP** | Defaults to `alert-channel=log`, which reports `delivered: false` rather than pretending. Check spam placement on first live run |
 | 8 | ~~Alert ledger is in memory~~ — **resolved in v0.3** | |
 | 9 | **No backups, no retention policy, no encryption at rest** | The database now holds medication lists, which are health data. Storing it is a new obligation, not just a new feature |
+| 10 | **No rate limiting on login** | Nothing slows down password guessing. The single most urgent item now |
+| 11 | **No password reset, no email verification, no account deletion** | A forgotten password is unrecoverable, and there is no way to exercise a deletion request |
+| 12 | **No admin can be created over HTTP, by design** | The first one has to be promoted with SQL: `UPDATE users SET role='ADMIN' WHERE username='…'` |
 
 ### Roadmap
 
-v0.3 planned three things; **one shipped**. PostgreSQL ✅, which also fixed the ledger.
-RxNorm ❌ — `rxnav.nlm.nih.gov` is blocked by the egress policy here, so it stays deferred
-for a reason that is checked rather than assumed. Auth ❌ — deferred, not forgotten.
+v0.4 shipped authentication and authorisation. RxNorm stays deferred for a checked reason:
+`rxnav.nlm.nih.gov` returns `403` at this environment's egress proxy.
 
-- **v0.4** — auth (3), now the most urgent item; retention and encryption (9)
-- **v0.5** — RxNorm (2); SMS via Twilio; real recorded fixture (6)
+- **v0.5** — login rate limiting (10); password reset and account deletion (11)
+- **v0.6** — retention, backups and encryption at rest (9)
+- **v0.7** — RxNorm (2); SMS via Twilio; real recorded fixture (6)
 
 **On SMS:** this audience skews older and email is the channel they're least reliably on.
 SMS reaches more of them but needs A2P 10DLC registration — procurement, not code. Email

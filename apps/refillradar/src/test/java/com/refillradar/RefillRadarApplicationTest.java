@@ -1,6 +1,7 @@
 package com.refillradar;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,8 +17,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.refillradar.domain.Account;
 import com.refillradar.shortage.ShortageSource;
+import com.refillradar.store.AccountRepository;
+import com.refillradar.support.Auth;
 import com.refillradar.support.DatabaseCleaner;
+import com.refillradar.support.TestAccounts;
 
 /**
  * End-to-end test of the wired application over HTTP.
@@ -44,6 +49,11 @@ class RefillRadarApplicationTest {
     @Autowired
     private DatabaseCleaner databaseCleaner;
 
+    @Autowired
+    private AccountRepository accounts;
+
+    private Account robert;
+
     /**
      * Starts every test from an empty database.
      *
@@ -54,6 +64,9 @@ class RefillRadarApplicationTest {
     @BeforeEach
     void emptyTheDatabase() {
         databaseCleaner.clean();
+        // An account has to exist before anything can belong to it - medications.user_id
+        // has been a foreign key since V2.
+        robert = accounts.save(TestAccounts.user("robert"));
     }
 
     @Test
@@ -68,9 +81,10 @@ class RefillRadarApplicationTest {
     @Test
     @DisplayName("a user can add a medication and get a supply check back")
     void addMedicationThenCheckSupply() throws Exception {
+        // No userId in the payload - there is nowhere to put one. The owner comes from
+        // the authenticated session instead.
         String payload = """
                 {
-                  "userId": "robert",
                   "displayName": "Adderall XR 10mg",
                   "searchTerm": "Adderall",
                   "lastFilledOn": "2026-09-01",
@@ -79,12 +93,14 @@ class RefillRadarApplicationTest {
                 """;
 
         mockMvc.perform(post("/api/medications")
+                        .with(Auth.as(robert)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.displayName").value("Adderall XR 10mg"));
+                .andExpect(jsonPath("$.displayName").value("Adderall XR 10mg"))
+                .andExpect(jsonPath("$.userId").value(robert.id()));
 
-        mockMvc.perform(get("/api/users/robert/supply-check"))
+        mockMvc.perform(get("/api/me/supply-check").with(Auth.as(robert)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.medicationsChecked").value(1))
                 .andExpect(jsonPath("$.shortagesScanned").value(8))
@@ -105,7 +121,9 @@ class RefillRadarApplicationTest {
     void emptyCheckIsStillInformative() throws Exception {
         // "No matches" must be distinguishable from "we know nothing" - see
         // SupplyCheckResponse for why that distinction matters.
-        mockMvc.perform(get("/api/users/nobody/supply-check"))
+        Account nobody = accounts.save(TestAccounts.user("nobody"));
+
+        mockMvc.perform(get("/api/me/supply-check").with(Auth.as(nobody)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.medicationsChecked").value(0))
                 .andExpect(jsonPath("$.shortagesScanned").value(8))
@@ -118,7 +136,6 @@ class RefillRadarApplicationTest {
     void rejectsInvalidInput() throws Exception {
         String badPayload = """
                 {
-                  "userId": "robert",
                   "displayName": "Test",
                   "lastFilledOn": "2026-09-01",
                   "daysSupply": -5
@@ -126,6 +143,7 @@ class RefillRadarApplicationTest {
                 """;
 
         mockMvc.perform(post("/api/medications")
+                        .with(Auth.as(robert)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badPayload))
                 .andExpect(status().isBadRequest());
@@ -134,7 +152,8 @@ class RefillRadarApplicationTest {
     @Test
     @DisplayName("the normalisation endpoint explains how a name was interpreted")
     void normalizationEndpointIsDiagnostic() throws Exception {
-        mockMvc.perform(get("/api/debug/normalize").param("name", "Adderall XR 10mg"))
+        mockMvc.perform(get("/api/debug/normalize").param("name", "Adderall XR 10mg")
+                        .with(Auth.as(robert)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recognisedBrand").value(true))
                 .andExpect(jsonPath("$.tokens").isArray());

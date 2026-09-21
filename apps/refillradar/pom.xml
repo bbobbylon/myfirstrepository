@@ -77,6 +77,28 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
 
+    <!-- Authentication and authorisation. v0.4 - until now userId was trusted as sent. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <!-- Sessions in PostgreSQL rather than in the servlet container's heap. Same lesson as
+         the alert ledger: state that only exists in memory does not survive a restart, and
+         here that would log every user out on every deploy. It also makes a session
+         instantly revocable - delete the row and the cookie is dead. -->
+    <dependency>
+      <groupId>org.springframework.session</groupId>
+      <artifactId>spring-session-jdbc</artifactId>
+    </dependency>
+
+    <!-- MockMvc support for authenticating as a given user in tests. -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- JUnit 5, AssertJ, Mockito, MockMvc. Test scope only - never shipped. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
