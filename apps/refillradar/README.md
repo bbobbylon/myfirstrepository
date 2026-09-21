@@ -26,12 +26,19 @@ interrupted supply is a medical event.
 
 ## Quick start
 
-JDK 21+, Maven 3.9+. No database, no network, no API key.
+JDK 21+, Maven 3.9+, PostgreSQL 14+. No network, no API key.
 
 ```bash
-mvn test                # 105 tests, offline, ~10s
+# One-time: create the database the defaults expect
+createdb refillradar && createuser refillradar   # or see Deployment for the psql version
+
+mvn test                # 117 tests, ~15s
 mvn spring-boot:run     # :8080
 ```
+
+No PostgreSQL to hand? `--spring.profiles.active=memory` runs everything in RAM. It is a
+demo mode, not a deployment mode — **it loses all data on restart, including the alert
+ledger, so a restarted instance re-sends every alert it has ever sent.**
 
 ```bash
 curl -X POST localhost:8080/api/medications -H 'Content-Type: application/json' \
@@ -76,6 +83,40 @@ run 3 (nothing changed)     sent: 0   suppressed: 1     <- de-duplication
   the failure most likely to go unnoticed, since everything still *responds*.
 
 03:00 because alerts composed overnight are read when a pharmacy can actually be called.
+
+## v0.3: storage that survives a restart
+
+v0.2's `ConcurrentHashMap` made `AlertLedger`'s de-duplication a lie: a restart emptied it,
+so the next nightly run re-sent every alert the app had ever sent — the exact notification
+fatigue the ledger exists to prevent. v0.3 moves medications, contacts and the ledger into
+PostgreSQL.
+
+- **Flyway owns the schema**, Hibernate runs `ddl-auto: validate`. An ORM that rewrites
+  tables at startup can drop a column, and its data, with nobody approving a diff.
+- **Domain records stay records.** JPA needs a no-arg constructor and mutable fields, which
+  `Medication`'s validating compact constructor cannot provide — so `MedicationEntity` is a
+  separate class that maps both ways. Boilerplate bought a domain object that cannot hold
+  invalid state.
+- **PostgreSQL is the default, with no fallback.** An unreachable database stops the app
+  booting. Opposite default from the shortage feed, deliberately: a missing feed shows up in
+  every response, whereas silent data loss looks like working software until a list turns up
+  empty.
+- **`@Enumerated(EnumType.STRING)`**, never JPA's `ORDINAL` default. Storing an enum by
+  position means adding a value mid-`SupplyRisk` reinterprets every existing row — a stored
+  `CRITICAL` reading back as `HIGH`, and the ledger suppressing an alert it should send.
+
+> **What the v0.2 roadmap got wrong.** It deferred this because "no Docker daemon here, and
+> H2 would be green for a reason that doesn't transfer." The H2 half still holds. The Docker
+> half was false — PostgreSQL 16 was installed all along. The blocker was an unchecked
+> assumption, not the environment.
+
+Two bugs the new tests caught, both mine. The integration test **passed on an empty database
+and failed on the second run**, because it committed real rows and never cleaned up; fixed
+with an explicit truncate rather than `@Transactional`, since a test that never commits
+cannot catch a bad column mapping. And `AlertLedgerTest`'s repeat-window test **would have
+passed with the window logic deleted** — each ledger had its own store, so it could only
+assert *something* was recorded. Splitting policy from storage made the honest version
+writable: one store, two clocks, both sides of the boundary asserted.
 
 ## How matching works
 
@@ -135,18 +176,49 @@ Defaulting to `fixture` means a misconfigured deploy fails towards **obviously f
 
 ## Deployment
 
-```bash
-mvn package && java -jar target/refillradar-0.1.0-SNAPSHOT.jar
-java -jar target/*.jar --refillradar.shortage-source=openfda   # live API
+### Local
 
-docker build -t refillradar . && docker run -p 8080:8080 refillradar
+```bash
+# 1. Database. These values match the defaults in application.yml.
+sudo -u postgres psql -c "CREATE USER refillradar WITH PASSWORD 'refillradar'"
+sudo -u postgres createdb -O refillradar refillradar
+
+# 2. Run. Flyway creates the schema on first start; Hibernate then validates against it.
+mvn package && java -jar target/refillradar-0.1.0-SNAPSHOT.jar
+
+# Overrides, all optional:
+java -jar target/*.jar --refillradar.shortage-source=openfda      # live FDA API
+java -jar target/*.jar --spring.profiles.active=memory            # no database, loses data
 ```
 
-Multi-stage build, JRE-only runtime stage, non-root user.
+Override with `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD`. **Passwords go in a
+secret manager, never in the image or the repo** — the defaults above exist so a laptop
+works out of the box and are not credentials for anything real.
 
-**CI** ([`refillradar-ci.yml`](../../.github/workflows/refillradar-ci.yml)): build + test →
-upload reports (`if: always()`) → build container (`needs: build`) → smoke test that starts
-the container and curls it.
+### Container
+
+```bash
+docker network create rr-net
+docker run -d --name rr-db --network rr-net \
+  -e POSTGRES_DB=refillradar -e POSTGRES_USER=refillradar \
+  -e POSTGRES_PASSWORD=refillradar postgres:16
+
+docker build -t refillradar . && docker run -p 8080:8080 --network rr-net \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://rr-db:5432/refillradar refillradar
+```
+
+Multi-stage build, JRE-only runtime stage, non-root user. No database config is baked in —
+it arrives as environment variables, so one artefact runs in every environment.
+
+### CI
+
+[`refillradar-ci.yml`](../../.github/workflows/refillradar-ci.yml): build + test against a
+`postgres:16` service → upload reports (`if: always()`) → build container (`needs: build`)
+→ start a database container and smoke-test the image against it, asserting Flyway actually
+created all four tables.
+
+Both jobs **wait for readiness** rather than hoping (`pg_isready` as the service health
+check, and polled again before the app starts) — same class of race as CI bug #2 below.
 
 > **Two CI bugs worth learning from.**
 >
@@ -171,21 +243,22 @@ Secrets go in GitHub Actions Secrets, never the repo. Tag images with the commit
 |---|---|---|
 | 1 | **Never verified against the live FDA API** — `api.fda.gov` unreachable here | Field names, date formats and the `status` vocabulary need confirming on first live run |
 | 2 | **Brand mapping is 20 hand-seeded entries.** Real answer is RxNorm | Unknown brands cause **false negatives** — the dangerous direction. Mitigated by `/debug/normalize` |
-| 3 | **No authentication.** `userId` is trusted in the clear | Anyone can read anyone's list. **Must fix before exposure** |
-| 4 | **In-memory storage** | All data lost on restart |
+| 3 | **No authentication.** `userId` is trusted in the clear | Anyone can read anyone's list. **Must fix before exposure** — and now that the data persists, this is the single most urgent item here |
+| 4 | ~~In-memory storage~~ — **resolved in v0.3** | |
 | 5 | ~~No scheduled sync~~ — **resolved in v0.2** | |
 | 6 | **Fixture is hand-written**, not a real capture | Labelled in the file itself |
 | 7 | **Email never tested against real SMTP** | Defaults to `alert-channel=log`, which reports `delivered: false` rather than pretending. Check spam placement on first live run |
-| 8 | **Alert ledger is in memory** | A restart re-sends delivered alerts. Goes away with #4 |
+| 8 | ~~Alert ledger is in memory~~ — **resolved in v0.3** | |
+| 9 | **No backups, no retention policy, no encryption at rest** | The database now holds medication lists, which are health data. Storing it is a new obligation, not just a new feature |
 
 ### Roadmap
 
-v0.2 planned three things; **one shipped**. Nightly sync ✅. RxNorm ❌. PostgreSQL ❌ —
-deliberately: no Docker daemon here, and shipping JPA entities tested only against H2 would
-repeat CI bug #2 above, green locally for a reason that doesn't transfer.
+v0.3 planned three things; **one shipped**. PostgreSQL ✅, which also fixed the ledger.
+RxNorm ❌ — `rxnav.nlm.nih.gov` is blocked by the egress policy here, so it stays deferred
+for a reason that is checked rather than assumed. Auth ❌ — deferred, not forgotten.
 
-- **v0.3** — RxNorm (2); PostgreSQL, which also fixes the ledger (4, 8); auth (3)
-- **v0.4** — SMS via Twilio; real recorded fixture (6)
+- **v0.4** — auth (3), now the most urgent item; retention and encryption (9)
+- **v0.5** — RxNorm (2); SMS via Twilio; real recorded fixture (6)
 
 **On SMS:** this audience skews older and email is the channel they're least reliably on.
 SMS reaches more of them but needs A2P 10DLC registration — procurement, not code. Email

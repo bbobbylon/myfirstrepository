@@ -6,25 +6,33 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.refillradar.shortage.ShortageSource;
+import com.refillradar.support.DatabaseCleaner;
 
 /**
  * End-to-end test of the wired application over HTTP.
  *
- * <p>Runs against the fixture shortage source (the default), so the whole suite still needs
- * no network and no database. This is the test that proves the pieces are actually connected
- * to each other - unit tests can all pass while the application fails to start.
+ * <p>Runs against the fixture shortage source (the default), so it needs no network - but
+ * since v0.3 it <b>does</b> need PostgreSQL, because storage is now real. That is the point:
+ * this is the test that proves the pieces are actually connected, and "connected" now
+ * includes Flyway having migrated and Hibernate having validated the entities against the
+ * schema. Unit tests can all pass while the application fails to start.
+ *
+ * <p>See {@code README.md} for the one command that starts a local database.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(DatabaseCleaner.class)
 class RefillRadarApplicationTest {
 
     @Autowired
@@ -32,6 +40,21 @@ class RefillRadarApplicationTest {
 
     @Autowired
     private ShortageSource shortageSource;
+
+    @Autowired
+    private DatabaseCleaner databaseCleaner;
+
+    /**
+     * Starts every test from an empty database.
+     *
+     * <p>Not optional. These tests commit for real, so without this the second run of the
+     * suite sees the first run's rows and fails on a count assertion - which is exactly what
+     * happened when this test was first pointed at PostgreSQL.
+     */
+    @BeforeEach
+    void emptyTheDatabase() {
+        databaseCleaner.clean();
+    }
 
     @Test
     @DisplayName("the application context starts and wires exactly one shortage source")

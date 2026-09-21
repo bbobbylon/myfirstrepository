@@ -51,6 +51,32 @@
       <artifactId>spring-boot-starter-mail</artifactId>
     </dependency>
 
+    <!-- JPA + Hibernate. v0.3 moves storage off the heap and into PostgreSQL. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- PostgreSQL driver. Runtime scope: application code never imports it, so compiling
+         against it would let a Postgres-only class leak into otherwise portable code. -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Flyway owns the schema. Hibernate's ddl-auto is set to 'validate', never 'update':
+         letting an ORM mutate a production schema at startup is how data gets silently
+         dropped. Migrations are versioned files, reviewed in the diff like any other code. -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+
     <!-- JUnit 5, AssertJ, Mockito, MockMvc. Test scope only - never shipped. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

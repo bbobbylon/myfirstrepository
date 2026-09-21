@@ -4,16 +4,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 import com.refillradar.domain.Medication;
 
 /**
- * In-memory {@link MedicationRepository} for v0.1.
+ * In-memory {@link MedicationRepository}, for the {@code memory} profile and for unit tests.
  *
- * <p><b>Data is lost on restart.</b> That is acceptable for proving the engine and running
- * tests, and unacceptable for real users. PostgreSQL via Spring Data JPA is the v0.2 task;
- * see {@link MedicationRepository} for why that swap is cheap.
+ * <p><b>Data is lost on restart.</b> Since v0.3 this is no longer the default - PostgreSQL
+ * is. It survives for unit tests, which construct it directly and need no database, and for
+ * the {@code memory} profile, a documented demo mode.
  *
  * <p>Uses {@link ConcurrentHashMap} rather than a plain {@link java.util.HashMap} because a
  * web application is multi-threaded by definition: the scheduled sync and an incoming HTTP
@@ -23,6 +24,7 @@ import com.refillradar.domain.Medication;
  * that only ever reproduces under load.
  */
 @Repository
+@Profile("memory")
 public class InMemoryMedicationRepository implements MedicationRepository {
 
     private final Map<String, Medication> storage = new ConcurrentHashMap<>();

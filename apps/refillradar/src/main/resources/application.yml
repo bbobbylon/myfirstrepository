@@ -13,6 +13,30 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
+  # Storage defaults to PostgreSQL. An unreachable database stops the application from
+  # starting, which is the correct failure: unlike a missing shortage feed - visible in
+  # every response - silent data loss looks exactly like working software until someone's
+  # list turns up empty. Override each value with the matching SPRING_DATASOURCE_* env var.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/refillradar}
+    username: ${SPRING_DATASOURCE_USERNAME:refillradar}
+    password: ${SPRING_DATASOURCE_PASSWORD:refillradar}
+
+  jpa:
+    hibernate:
+      # validate, never update or create. Flyway owns the schema; Hibernate only checks the
+      # entities against it and refuses to start on a mismatch. An ORM that rewrites tables
+      # at startup can drop a column - and its data - with nobody approving a diff.
+      ddl-auto: validate
+    # Off by default: an ORM issuing one query per row looks fine in development and melts
+    # under real data. Turn on temporarily to find those, not permanently.
+    show-sql: false
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
 server:
   port: 8080
 

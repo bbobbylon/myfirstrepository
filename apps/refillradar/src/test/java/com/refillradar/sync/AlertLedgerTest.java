@@ -12,6 +12,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.refillradar.alert.AlertLedger;
+import com.refillradar.alert.AlertRecordStore;
+import com.refillradar.alert.InMemoryAlertRecordStore;
 import com.refillradar.domain.Medication;
 import com.refillradar.domain.ShortageMatch;
 import com.refillradar.domain.ShortageRecord;
@@ -40,7 +42,8 @@ class AlertLedgerTest {
     }
 
     private AlertLedger ledgerAt(Instant instant) {
-        return new AlertLedger(Clock.fixed(instant, ZoneOffset.UTC));
+        return new AlertLedger(new InMemoryAlertRecordStore(),
+                Clock.fixed(instant, ZoneOffset.UTC));
     }
 
     @Test
@@ -89,13 +92,41 @@ class AlertLedgerTest {
     void repeatsAfterTheWindow() {
         // A months-long shortage should produce an occasional reminder, not one message in
         // January and silence until March.
-        AlertLedger ledger = ledgerAt(DAY_ONE);
-        ledger.record(match(SupplyRisk.HIGH, "m1"));
+        //
+        // Both ledgers SHARE one store, which is what makes this a real test of the window.
+        // An earlier version gave each its own store and asserted only that lastSent() was
+        // present - it would have passed with the window logic deleted entirely. Separating
+        // policy from storage is what made the honest version writable.
+        AlertRecordStore store = new InMemoryAlertRecordStore();
+        new AlertLedger(store, Clock.fixed(DAY_ONE, ZoneOffset.UTC))
+                .record(match(SupplyRisk.HIGH, "m1"));
 
-        AlertLedger later = ledgerAt(DAY_ONE.plus(AlertLedger.REPEAT_AFTER).plusSeconds(1));
-        // Re-record into the later ledger to simulate the same stored state.
-        later.record(match(SupplyRisk.HIGH, "m1"));
-        assertThat(later.lastSent(match(SupplyRisk.HIGH, "m1"))).isPresent();
+        AlertLedger justInsideWindow = new AlertLedger(store,
+                Clock.fixed(DAY_ONE.plus(AlertLedger.REPEAT_AFTER).minusSeconds(1),
+                        ZoneOffset.UTC));
+        assertThat(justInsideWindow.shouldSend(match(SupplyRisk.HIGH, "m1")))
+                .as("still inside the repeat window - stay quiet")
+                .isFalse();
+
+        AlertLedger justOutsideWindow = new AlertLedger(store,
+                Clock.fixed(DAY_ONE.plus(AlertLedger.REPEAT_AFTER).plusSeconds(1),
+                        ZoneOffset.UTC));
+        assertThat(justOutsideWindow.shouldSend(match(SupplyRisk.HIGH, "m1")))
+                .as("past the repeat window - remind them")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("what was recorded survives being read back through a different ledger")
+    void storeOutlivesTheLedgerInstance() {
+        // The v0.2 bug in miniature. The ledger object is per-run; the record of what we
+        // told someone must outlive it, or every restart re-sends everything.
+        AlertRecordStore store = new InMemoryAlertRecordStore();
+        new AlertLedger(store, Clock.fixed(DAY_ONE, ZoneOffset.UTC))
+                .record(match(SupplyRisk.HIGH, "m1"));
+
+        AlertLedger freshInstance = new AlertLedger(store, Clock.fixed(DAY_ONE, ZoneOffset.UTC));
+        assertThat(freshInstance.shouldSend(match(SupplyRisk.HIGH, "m1"))).isFalse();
     }
 
     @Test

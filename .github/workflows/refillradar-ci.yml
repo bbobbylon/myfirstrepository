@@ -1,9 +1,13 @@
 # CI for RefillRadar.
 #
-# The whole suite runs with NO network and NO database: shortage data comes from a
-# recorded fixture on the classpath. That is deliberate - a build that depends on a
-# third-party API goes red when someone else's server has a bad day, and a CI signal
-# nobody trusts is worse than no CI at all.
+# No third-party network calls: shortage data comes from a recorded fixture on the
+# classpath. A build that depends on someone else's API goes red when their server has a
+# bad day, and a CI signal nobody trusts is worse than no CI at all.
+#
+# It DOES need a database as of v0.3. That is a deliberate trade: the persistence tests
+# assert things a HashMap passes trivially and PostgreSQL might not - a date surviving a
+# round trip, an enum stored by name, a CHECK constraint actually firing. Testing storage
+# against a map proves nothing about storage.
 name: RefillRadar CI
 
 on:
@@ -23,6 +27,25 @@ jobs:
     defaults:
       run:
         working-directory: apps/refillradar
+
+    # Matches the defaults in application.yml, so no test needs overriding config.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: refillradar
+          POSTGRES_USER: refillradar
+          POSTGRES_PASSWORD: refillradar
+        ports:
+          - 5432:5432
+        # Without this the build can start before the database accepts connections.
+        # Same class of race as the container smoke test below, and the same fix:
+        # wait for readiness rather than hoping.
+        options: >-
+          --health-cmd "pg_isready -U refillradar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +96,33 @@ jobs:
             -t refillradar:latest \
             apps/refillradar
 
+      # A user-defined network rather than the job's `services:` block, because this
+      # container is started with `docker run` and so is not on the job's service network.
+      # On a shared network both containers resolve each other by name, which is also how
+      # the app will find its database in any real deployment.
+      - name: Start a database for the smoke test
+        run: |
+          docker network create refillradar-net
+          docker run -d --name refillradar-db --network refillradar-net \
+            -e POSTGRES_DB=refillradar \
+            -e POSTGRES_USER=refillradar \
+            -e POSTGRES_PASSWORD=refillradar \
+            postgres:16
+
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec refillradar-db pg_isready -U refillradar >/dev/null 2>&1; then
+              echo "PostgreSQL ready after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::PostgreSQL did not become ready within 60s"
+              docker logs refillradar-db
+              exit 1
+            fi
+            sleep 1
+          done
+
       # Deployment is intentionally NOT wired up yet. When it is, add a separate
       # step here carrying `if: github.ref == 'refs/heads/master'` - the PUSH is
       # what belongs behind a branch gate, not the build and smoke test above.
@@ -80,7 +130,16 @@ jobs:
       # roll back to "latest".
       - name: Smoke test the image
         run: |
-          docker run -d --name refillradar -p 8080:8080 refillradar:${{ github.sha }}
+          # Pointing the container at the real database proves more than the memory
+          # profile would: Flyway migrates, Hibernate validates the entities against the
+          # migrated schema, and a mismatch between the two fails the build here rather
+          # than on someone's first deployment.
+          docker run -d --name refillradar -p 8080:8080 \
+            --network refillradar-net \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://refillradar-db:5432/refillradar \
+            -e SPRING_DATASOURCE_USERNAME=refillradar \
+            -e SPRING_DATASOURCE_PASSWORD=refillradar \
+            refillradar:${{ github.sha }}
 
           # Wait for the JVM to actually bind the port before curling it.
           #
@@ -108,7 +167,7 @@ jobs:
             if [ "$i" -eq 60 ]; then
               echo "::error::Application did not start within 60s"
               docker logs refillradar
-              docker rm -f refillradar
+              docker rm -f refillradar refillradar-db
               exit 1
             fi
             sleep 1
@@ -121,7 +180,7 @@ jobs:
                     localhost:8080/api/users/ci-smoke-test/supply-check -o response.json; then
             echo "::error::Endpoint did not respond. Container logs follow:"
             docker logs refillradar
-            docker rm -f refillradar
+            docker rm -f refillradar refillradar-db
             exit 1
           fi
 
@@ -131,9 +190,23 @@ jobs:
           if ! grep -q '"shortagesScanned":8' response.json; then
             echo "::error::Unexpected response - expected 8 shortage records from the fixture"
             docker logs refillradar
-            docker rm -f refillradar
+            docker rm -f refillradar refillradar-db
             exit 1
           fi
 
-          echo "Smoke test passed: container builds, boots as non-root, and serves a real response."
-          docker rm -f refillradar
+          # Proves persistence is wired end to end in the image, not just in the tests.
+          echo "--- checking Flyway actually migrated the database ---"
+          TABLES=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
+            "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public'")
+          echo "tables: $TABLES"
+          for table in alert_records contacts flyway_schema_history medications; do
+            if ! echo "$TABLES" | grep -q "$table"; then
+              echo "::error::Expected table '$table' is missing - Flyway did not run"
+              docker logs refillradar
+              docker rm -f refillradar refillradar-db
+              exit 1
+            fi
+          done
+
+          echo "Smoke test passed: container builds, boots as non-root, migrates its database, and serves a real response."
+          docker rm -f refillradar refillradar-db

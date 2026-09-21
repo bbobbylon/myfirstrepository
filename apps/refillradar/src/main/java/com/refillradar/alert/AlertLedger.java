@@ -3,9 +3,7 @@ package com.refillradar.alert;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Component;
 
@@ -24,6 +22,10 @@ import com.refillradar.domain.SupplyRisk;
  * from {@link SupplyRisk#MEDIUM} to {@link SupplyRisk#CRITICAL} means days left, not weeks,
  * so {@link #shouldSend} re-alerts on escalation - and again after {@link #REPEAT_AFTER},
  * so a long shortage produces occasional reminders rather than months of silence.
+ *
+ * <p>This class holds the <em>policy</em> only. Where the record of what was sent actually
+ * lives is {@link AlertRecordStore}'s job - since v0.3 a PostgreSQL table, because a ledger
+ * that empties on restart re-sends everything it was built to suppress.
  */
 @Component
 public class AlertLedger {
@@ -31,13 +33,15 @@ public class AlertLedger {
     /** How long before the same unchanged alert may be sent again. */
     public static final Duration REPEAT_AFTER = Duration.ofDays(14);
 
-    private final Map<String, Entry> sent = new ConcurrentHashMap<>();
+    private final AlertRecordStore store;
     private final Clock clock;
 
     /**
+     * @param store where sent alerts are recorded
      * @param clock injected so repeat windows are testable without waiting a fortnight
      */
-    public AlertLedger(Clock clock) {
+    public AlertLedger(AlertRecordStore store, Clock clock) {
+        this.store = store;
         this.clock = clock;
     }
 
@@ -48,10 +52,11 @@ public class AlertLedger {
      * @return {@code true} if it is new, has escalated, or the repeat window has elapsed
      */
     public boolean shouldSend(ShortageMatch match) {
-        Entry previous = sent.get(keyFor(match));
-        if (previous == null) {
+        Optional<Entry> found = store.find(keyFor(match));
+        if (found.isEmpty()) {
             return true;
         }
+        Entry previous = found.get();
         // Escalation is new information, not a repeat. Days left, not weeks.
         if (isMoreUrgent(match.risk(), previous.risk())) {
             return true;
@@ -65,7 +70,7 @@ public class AlertLedger {
      * @param match the match that was alerted on
      */
     public void record(ShortageMatch match) {
-        sent.put(keyFor(match), new Entry(match.risk(), clock.instant()));
+        store.put(keyFor(match), new Entry(match.risk(), clock.instant()));
     }
 
     /**
@@ -75,14 +80,14 @@ public class AlertLedger {
      * @return the previous entry, or empty
      */
     public Optional<Entry> lastSent(ShortageMatch match) {
-        return Optional.ofNullable(sent.get(keyFor(match)));
+        return store.find(keyFor(match));
     }
 
     /**
      * Clears the ledger. Test support only.
      */
     public void clear() {
-        sent.clear();
+        store.clear();
     }
 
     /**

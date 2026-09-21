@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import com.refillradar.alert.AlertComposer;
 import com.refillradar.alert.AlertDispatcher;
 import com.refillradar.alert.AlertLedger;
+import com.refillradar.alert.InMemoryAlertRecordStore;
 import com.refillradar.alert.AlertService;
 import com.refillradar.domain.Medication;
 import com.refillradar.domain.ShortageRecord;
@@ -26,6 +27,7 @@ import com.refillradar.refill.RefillProjector;
 import com.refillradar.shortage.ShortageFetchException;
 import com.refillradar.shortage.ShortageSource;
 import com.refillradar.store.ContactRepository;
+import com.refillradar.store.InMemoryContactRepository;
 import com.refillradar.store.InMemoryMedicationRepository;
 
 /**
@@ -48,9 +50,9 @@ class ShortageSyncJobTest {
     @BeforeEach
     void setUp() {
         medications = new InMemoryMedicationRepository();
-        contacts = new ContactRepository();
+        contacts = new InMemoryContactRepository();
         cache = new ShortageCache(FIXED);
-        ledger = new AlertLedger(FIXED);
+        ledger = new AlertLedger(new InMemoryAlertRecordStore(), FIXED);
         dispatcher = new RecordingDispatcher();
     }
 
