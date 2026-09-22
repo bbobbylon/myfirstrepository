@@ -48,6 +48,10 @@ public class DatabaseCleaner {
     @Transactional
     public void clean() {
         jdbc.execute("TRUNCATE TABLE medications, contacts, alert_records, users");
+        // Failed logins outlive the test that caused them, and MockMvc gives every request
+        // the same remote address - so without this the per-address limit would be reached
+        // partway through a class and fail whichever test happened to run next.
+        jdbc.execute("TRUNCATE TABLE login_attempts");
         // Sessions reference nothing, but a leftover login from a previous test would make
         // an "unauthenticated request is refused" assertion pass or fail by accident.
         jdbc.execute("TRUNCATE TABLE SPRING_SESSION CASCADE");

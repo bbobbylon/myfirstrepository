@@ -47,6 +47,12 @@ spring:
 
 server:
   port: 8080
+  # Leave this alone unless a proxy you control is in front of the application. The rate
+  # limiter counts per source address, and with no strategy set that address is the socket's
+  # - a fact the client cannot forge. Set it to `framework` (or `native`) ONLY behind a proxy
+  # that overwrites X-Forwarded-For, otherwise anyone can rotate the header for a fresh
+  # budget, or forge someone else's address and spend theirs.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   servlet:
     session:
       cookie:
@@ -64,6 +70,22 @@ server:
         secure: ${SESSION_COOKIE_SECURE:false}
 
 refillradar:
+  security:
+    # How hard it is to guess a password here. Failures age out on their own; nothing has to
+    # be unlocked by an administrator, because a lockout that needs one is a way for an
+    # attacker to take someone's account offline just by knowing their username.
+    login-throttle:
+      # Per username. Five is generous for typing errors and mean for guessing.
+      max-failures-per-username: 5
+      # Per source address, across all usernames - this is the one that catches spraying:
+      # one popular password tried against a thousand accounts leaves one failure on each.
+      max-failures-per-ip: 20
+      window: PT15M
+      # Registration is metered separately, and every attempt counts rather than only the
+      # ones that create an account: a "username taken" answer is itself worth rationing.
+      max-registrations-per-ip: 5
+      registration-window: PT1H
+
   # `fixture` = replay the bundled recorded response (offline, deterministic)
   # `openfda` = call the live https://api.fda.gov/drug/shortages.json
   shortage-source: fixture

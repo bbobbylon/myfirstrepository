@@ -252,12 +252,68 @@ jobs:
             exit 1
           fi
 
+          # ---- 4. Guessing a password must be stopped -------------------------------
+          # v0.4 added a password check; until v0.5 nothing limited how often it could be
+          # guessed at, so the protection was only ever as strong as the weakest password
+          # any user had chosen - with unlimited tries to find that user.
+          echo "--- five wrong passwords, then a sixth (expect 401 x5, then 429) ---"
+          for i in $(seq 1 5); do
+            WRONG=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                         -X POST localhost:8080/api/auth/login \
+                         -H 'Content-Type: application/json' \
+                         -d '{"username":"ci-smoke-test","password":"definitely-not-it"}')
+            if [ "$WRONG" != "401" ]; then
+              echo "::error::Wrong-password attempt $i returned $WRONG, expected 401"
+              docker logs refillradar
+              docker rm -f refillradar refillradar-db
+              exit 1
+            fi
+          done
+
+          THROTTLED=$(curl --silent --output throttled.json --dump-header throttled.h \
+                           --write-out '%{http_code}' \
+                           -X POST localhost:8080/api/auth/login \
+                           -H 'Content-Type: application/json' \
+                           -d '{"username":"ci-smoke-test","password":"definitely-not-it"}')
+          if [ "$THROTTLED" != "429" ] || ! grep -qi '^retry-after:' throttled.h; then
+            echo "::error::The sixth wrong password returned $THROTTLED with no Retry-After, expected 429. Nothing is slowing down password guessing."
+            cat throttled.json throttled.h
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+
+          # The CORRECT password must be refused too. That is the observable proof that the
+          # refusal happens before the credential check rather than after it - which is what
+          # stops an attacker spending this server's CPU on BCrypt at will.
+          RIGHT_WHILE_BLOCKED=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                                     -X POST localhost:8080/api/auth/login \
+                                     -H 'Content-Type: application/json' \
+                                     -d '{"username":"ci-smoke-test","password":"a-long-enough-ci-passphrase"}')
+          if [ "$RIGHT_WHILE_BLOCKED" != "429" ]; then
+            echo "::error::A blocked caller got $RIGHT_WHILE_BLOCKED for the right password, expected 429. The credentials are being checked before the throttle."
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+
+          # Refused attempts must write nothing: otherwise an attacker who is already
+          # blocked can still grow the table by continuing to knock.
+          RECORDED=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
+            "SELECT count(*) FROM login_attempts WHERE attempt_key = 'user:ci-smoke-test'")
+          if [ "$RECORDED" != "5" ]; then
+            echo "::error::Seven attempts recorded $RECORDED rows, expected exactly 5. A refused attempt must not be recorded."
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: refused after five failures, refused the right password too, recorded exactly 5 attempts"
+
           # Proves persistence is wired end to end in the image, not just in the tests.
           echo "--- checking Flyway actually migrated the database ---"
           TABLES=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public'")
           echo "tables: $TABLES"
-          for table in alert_records contacts flyway_schema_history medications users spring_session; do
+          for table in alert_records contacts flyway_schema_history login_attempts medications users spring_session; do
             if ! echo "$TABLES" | grep -q "$table"; then
               echo "::error::Expected table '$table' is missing - Flyway did not run"
               docker logs refillradar
@@ -266,5 +322,5 @@ jobs:
             fi
           done
 
-          echo "Smoke test passed: container builds, boots as non-root, migrates its database, refuses anonymous access, and serves a real response to a logged-in user."
+          echo "Smoke test passed: container builds, boots as non-root, migrates its database, refuses anonymous access, throttles password guessing, and serves a real response to a logged-in user."
           docker rm -f refillradar refillradar-db

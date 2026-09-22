@@ -3,8 +3,9 @@
 **Personal early warning for drug shortages.** Watches the FDA shortage database against
 *your* medication list and warns you weeks before a refill fails.
 
-> **v0.2 — alerting loop closed.** 105 tests, runs offline. Not production ready: no auth,
-> no database, openFDA never verified live. See [Limitations](#limitations).
+> **v0.5 — password guessing is now rate limited.** 153 tests, runs offline. Still not
+> production ready: openFDA has never been verified live, and there is no password reset,
+> no backup and no encryption at rest. See [Limitations](#limitations).
 >
 > **Not medical advice.** Never suggests alternative medicines. Talk to your pharmacist.
 
@@ -32,7 +33,7 @@ JDK 21+, Maven 3.9+, PostgreSQL 14+. No network, no API key.
 # One-time: create the database the defaults expect
 createdb refillradar && createuser refillradar   # or see Deployment for the psql version
 
-mvn test                # 133 tests, ~20s
+mvn test                # 153 tests, ~35s
 mvn spring-boot:run     # :8080
 ```
 
@@ -186,6 +187,46 @@ The 16 security tests are written as **attacks that used to succeed**, not as fe
 checks. Two were verified by re-introducing the original bugs and confirming the tests go
 red.
 
+## v0.5: rate limiting, and the shape of a guessing attack
+
+v0.4 checked passwords. Nothing limited how often they could be checked, so the protection
+was only ever as strong as the weakest password any user had chosen — and an attacker had
+unlimited tries to find that user.
+
+**Two counters, and an attempt must be under both to be tried at all.**
+
+| Counter | Limit | Window | Catches |
+|---|---|---|---|
+| Per username | 5 failures | 15 min | Someone hammering one account |
+| Per source address | 20 failures | 15 min | One password sprayed across many accounts |
+| Per source address, registration | 5 attempts | 1 h | Mass sign-up, and reading the user list out of "username taken" |
+
+Either counter alone has a blind spot the other covers. Per-username never moves during a
+spray — every account collects exactly one failure, indistinguishable from a typo.
+Per-address is the wrong shape for a targeted attack and punishes a whole office behind one
+address. Refusals are `429` with a `Retry-After` header saying exactly when the block lifts.
+
+- **A window that heals, never a lockout.** Locking an account until an administrator
+  intervenes turns "I know your username" into "I can take you off your medication list".
+  These counters age out on their own.
+- **A refused attempt is not recorded.** So an attacker who keeps knocking can neither grow
+  the table nor extend the block they have put someone else behind.
+- **Refused *before* the password is checked.** Verifying a BCrypt hash is deliberately
+  slow, so answering a thousandth guess costs this server far more than sending it cost the
+  attacker. The observable proof: once blocked, the *correct* password gets `429` too.
+- **Counted identically for usernames that do not exist.** Counting only real accounts would
+  make the `429` answer the question login is careful never to answer.
+- **A success clears the username's counter, not the address's** — otherwise an attacker
+  holding one valid account resets their own budget between bursts by logging into it.
+- **The counters live in PostgreSQL.** In the JVM they would be cleared by a restart, and
+  every replica behind a load balancer would get its own full budget.
+
+> **On citations.** The usual reference for authentication throttling is NIST SP 800-63B,
+> and this environment's egress policy blocks `pages.nist.gov` and the OWASP cheat sheets —
+> `403` at the proxy, confirmed through two different clients. The numbers above are
+> therefore argued from first principles rather than taken from a source that was actually
+> read. Check them against current guidance before treating them as settled.
+
 ## How matching works
 
 A user types `Adderall XR 10mg`. The FDA publishes
@@ -225,6 +266,8 @@ Two more decisions:
 | `POST`/`GET` | `/api/me/contact` | session | Where alerts go / is the user reachable |
 
 **`/api/users/{id}/...` is gone.** Not guarded — gone. See the v0.4 section below.
+`register` and `login` also answer **`429 Too Many Requests`** with a `Retry-After` header
+once the limits in the v0.5 section are reached.
 
 `/api/debug/normalize` exists because the worst failure here is silent: if the normaliser
 has never heard of a brand, nothing matches and the app looks fine while protecting nobody.
@@ -269,11 +312,22 @@ mvn package && java -jar target/refillradar-0.1.0-SNAPSHOT.jar
 # Overrides, all optional:
 java -jar target/*.jar --refillradar.shortage-source=openfda      # live FDA API
 java -jar target/*.jar --spring.profiles.active=memory            # no database, loses data
+java -jar target/*.jar \
+  --refillradar.security.login-throttle.max-failures-per-username=5 \
+  --refillradar.security.login-throttle.max-failures-per-ip=20 \
+  --refillradar.security.login-throttle.window=PT15M              # rate limits, defaults shown
 ```
 
 Override with `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD`. **Passwords go in a
 secret manager, never in the image or the repo** — the defaults above exist so a laptop
 works out of the box and are not credentials for anything real.
+
+**Behind a reverse proxy, set `FORWARD_HEADERS_STRATEGY=framework`** — and only there.
+The per-address limit counts the socket's address, which a client cannot forge. Put a proxy
+in front without telling the application, and every request appears to come from the proxy:
+twenty failures from anyone locks out everyone. Set it when the proxy *overwrites*
+`X-Forwarded-For`; set it with a proxy that merely passes the header through and an attacker
+rotates it for a fresh budget, or forges yours and spends it.
 
 **`SESSION_COOKIE_SECURE=true` is required for any deployment served over HTTPS.** It
 defaults to `false` so `http://localhost` can log in at all; left false behind TLS, the
@@ -300,8 +354,10 @@ it arrives as environment variables, so one artefact runs in every environment.
 
 [`refillradar-ci.yml`](../../.github/workflows/refillradar-ci.yml): build + test against a
 `postgres:16` service → upload reports (`if: always()`) → build container (`needs: build`)
-→ start a database container and smoke-test the image against it, asserting Flyway actually
-created all four tables.
+→ start a database container and smoke-test the image against it. The smoke test asserts
+that anonymous access is refused, that ten anonymous requests create zero session rows, that
+a sixth wrong password gets `429` while recording only five attempts, and that Flyway created
+every table the application expects.
 
 Both jobs **wait for readiness** rather than hoping (`pg_isready` as the service health
 check, and polled again before the app starts) — same class of race as CI bug #2 below.
@@ -336,18 +392,20 @@ Secrets go in GitHub Actions Secrets, never the repo. Tag images with the commit
 | 7 | **Email never tested against real SMTP** | Defaults to `alert-channel=log`, which reports `delivered: false` rather than pretending. Check spam placement on first live run |
 | 8 | ~~Alert ledger is in memory~~ — **resolved in v0.3** | |
 | 9 | **No backups, no retention policy, no encryption at rest** | The database now holds medication lists, which are health data. Storing it is a new obligation, not just a new feature |
-| 10 | **No rate limiting on login** | Nothing slows down password guessing. The single most urgent item now |
+| 10 | ~~No rate limiting on login~~ — **resolved in v0.5** | |
 | 11 | **No password reset, no email verification, no account deletion** | A forgotten password is unrecoverable, and there is no way to exercise a deletion request |
 | 12 | **No admin can be created over HTTP, by design** | The first one has to be promoted with SQL: `UPDATE users SET role='ADMIN' WHERE username='…'` |
+| 13 | **Rate limiting does not stop a distributed attack** | A few guesses from each of thousands of addresses stays under both limits. No CAPTCHA, no proof of work, no second factor — and the user is never told someone is trying |
 
 ### Roadmap
 
-v0.4 shipped authentication and authorisation. RxNorm stays deferred for a checked reason:
+v0.5 shipped rate limiting. RxNorm stays deferred for a checked reason:
 `rxnav.nlm.nih.gov` returns `403` at this environment's egress proxy.
 
-- **v0.5** — login rate limiting (10); password reset and account deletion (11)
-- **v0.6** — retention, backups and encryption at rest (9)
-- **v0.7** — RxNorm (2); SMS via Twilio; real recorded fixture (6)
+- **v0.6** — password reset, email verification and account deletion (11); telling a user
+  their account is being guessed at (13)
+- **v0.7** — retention, backups and encryption at rest (9)
+- **v0.8** — RxNorm (2); SMS via Twilio; real recorded fixture (6)
 
 **On SMS:** this audience skews older and email is the channel they're least reliably on.
 SMS reaches more of them but needs A2P 10DLC registration — procurement, not code. Email
