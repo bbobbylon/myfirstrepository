@@ -4,8 +4,8 @@
 before the money moves — with a pre-agreed passphrase, a forced pause, and one-tap
 escalation to relatives.
 
-> **v0.1 — working core engine.** 53 tests, runs offline. Not production ready: no auth, no
-> mobile client, and **escalation messages are composed but not sent**.
+> **v0.2 — circles now belong to somebody.** 71 tests, runs offline. Not production ready:
+> no mobile client, and **escalation messages are composed but not sent**.
 
 Research: [`../../proposals/04-safeword.md`](../../proposals/04-safeword.md)
 
@@ -32,14 +32,27 @@ You can't patch human intuition — but you can replace the heuristic.
 JDK 21+, Maven 3.9+. Port **8083**.
 
 ```bash
-mvn test                # 53 tests, offline
+# One-time: create the database the defaults expect.
+sudo -u postgres psql -c "CREATE USER safeword WITH PASSWORD 'safeword'"
+sudo -u postgres createdb -O safeword safeword
+
+mvn test                # 71 tests, offline (needs the database above)
 mvn spring-boot:run
 ```
 
-**1. Try to give the server the passphrase. It refuses.**
+**1. Try to give the server the passphrase. It refuses.** (Circle routes need a session from
+v0.2, so register and log in first; `-c/-b` keeps the cookies, and `X-XSRF-TOKEN` echoes the
+CSRF cookie back.)
 
 ```bash
-curl -sS -X POST localhost:8083/api/circles -H 'Content-Type: application/json' \
+curl -sS -c jar -X POST localhost:8083/api/auth/register -H 'Content-Type: application/json' \
+  -d '{"username":"you","password":"a-long-enough-passphrase"}'
+curl -sS -c jar -b jar -X POST localhost:8083/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"you","password":"a-long-enough-passphrase"}'
+XSRF=$(grep XSRF-TOKEN jar | awk '{print $7}')
+
+curl -sS -b jar -X POST localhost:8083/api/me/circle \
+  -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $XSRF" \
   -d '{"name":"The Family","passphrase":"bluebird","members":[]}'
 ```
 ```json
@@ -48,7 +61,8 @@ curl -sS -X POST localhost:8083/api/circles -H 'Content-Type: application/json' 
              so we can never leak it. Agree it in person and keep it only in your memories."}
 ```
 
-**2. Report a cloned-voice grandparent call.**
+**2. Report a cloned-voice grandparent call.** No login, no CSRF token, no account — see
+below for why that is deliberate.
 
 ```bash
 curl -sS -X POST localhost:8083/api/check-call -H 'Content-Type: application/json' \
@@ -64,6 +78,50 @@ LIKELY: Family emergency - now with a cloned voice
 
 CAVEAT: This is based only on what you told us. It is not a certainty either way.
 ```
+
+## v0.2: circles belong to somebody, and survive a restart
+
+v0.1 kept circles in a `HashMap` and took the circle id from the URL. Two consequences, and
+the second is the serious one:
+
+1. Every circle vanished on restart.
+2. **Anyone holding a circle id could read that family's setup and raise an alarm to them.**
+
+The repair is the one RefillRadar v0.4 used — remove the identifier rather than check it:
+
+```
+v0.1   GET  /api/circles/{id}/status      ← the caller picks whose family
+v0.2   GET  /api/me/circle/status         ← the session picks
+```
+
+Escalation matters most. v0.1 only *composes* messages, so the damage was bounded — but the
+moment delivery is wired up, an anonymous `POST /api/circles/{id}/escalate` becomes a way to
+cry wolf at someone else's family until they learn to ignore the alert this app exists to
+send. There is no `findById` in the repository any more: a method that does not exist cannot
+be called by a route somebody adds next year without thinking about ownership.
+
+Persistence and identity shipped together because neither is worth much alone. Accounts that
+disappear on restart are not accounts; durable circles nobody owns are still readable by
+anyone who guesses an id. And a circle that quietly vanished is worse here than in most
+apps — the family still sees the app open and still believes someone will be called.
+
+Authentication, sessions and the login rate limiter are **ported from RefillRadar v0.4–v0.5**
+with the same reasoning and the same numbers: sessions rather than JWTs so "my phone was
+taken" takes effect now, a delegating password encoder, 5 failures per username and 20 per
+address in a 15-minute window that heals by itself.
+
+### What stayed public, on purpose
+
+`/api/pause`, `/api/check-call`, `/api/scam-patterns` and `/api/passphrase/instructions`
+need no account. They read and write nobody's data — the same tactics always score the same
+— and they are what a person uses **while a suspicious call is happening**. A login prompt
+at that moment would protect nothing and cost the only moment this app exists for.
+
+`/api/check-call` is also exempt from the CSRF token for the same reason: it carries no
+authority for a cross-site request to borrow, and requiring a token would mean fetching one
+before you can ask "is this call a scam?". Over-locking is a quieter failure than
+under-locking — nothing looks broken, the app is just useless when it matters — so two tests
+and a CI assertion exist specifically to keep these four routes open.
 
 ## Three decisions
 
@@ -133,28 +191,75 @@ the money is gone. Different layer; running both is entirely reasonable.
 
 ## API
 
-| Method | Path | |
-|---|---|---|
-| `POST` | `/api/circles` | Create a circle (**refuses a passphrase**) |
-| `GET` | `/api/circles/{id}/status` | Setup status + what's outstanding |
-| `GET` | `/api/passphrase/instructions` | How to agree one safely |
-| `GET` | `/api/pause` | The pause screen content |
-| `POST` | `/api/check-call` | Score a call from reported tactics |
-| `POST` | `/api/circles/{id}/escalate` | Ask the circle for a call |
-| `GET` | `/api/scam-patterns` | The pattern library |
+| Method | Path | Auth | |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | — | Create an account |
+| `POST` | `/api/auth/login` | — | Start a session |
+| `POST` | `/api/auth/logout` | session | End it |
+| `POST` | `/api/me/circle` | session | Create your circle (**refuses a passphrase**) |
+| `PUT` | `/api/me/circle` | session | Replace it — removing a responder is a save without them |
+| `GET` | `/api/me/circle/status` | session | Setup status + what's outstanding |
+| `POST` | `/api/me/circle/escalate` | session | Ask your circle for a call |
+| `GET` | `/api/pause` | **none** | The pause screen content |
+| `POST` | `/api/check-call` | **none** | Score a call from reported tactics |
+| `GET` | `/api/scam-patterns` | **none** | The pattern library |
+| `GET` | `/api/passphrase/instructions` | **none** | How to agree one safely |
 
-Note what has **no endpoint**: any way to send SafeWord a passphrase.
+**`/api/circles/{id}/...` is gone.** Not guarded — gone. See the v0.2 section.
+
+Note what has **no endpoint**: any way to send SafeWord a passphrase. There is also no
+column for one, which CI checks against the live schema rather than against a response body.
 
 ## Deployment
 
+### Local
+
 ```bash
+sudo -u postgres psql -c "CREATE USER safeword WITH PASSWORD 'safeword'"
+sudo -u postgres createdb -O safeword safeword
+
 mvn package && java -jar target/safeword-0.1.0-SNAPSHOT.jar
-docker build -t safeword . && docker run -p 8083:8083 safeword
+
+# Overrides, all optional:
+java -jar target/*.jar --spring.profiles.active=memory   # no database, LOSES EVERY CIRCLE
 ```
 
-**CI** ([`safeword-ci.yml`](../../.github/workflows/safeword-ci.yml)): build + test →
-container build → **smoke test asserting the security invariant** via
-[`ci/assert_passphrase_refused.py`](ci/assert_passphrase_refused.py).
+Override the database with `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD`. **Passwords
+go in a secret manager, never in the image or the repo** — the defaults above exist so a
+laptop works out of the box.
+
+**`SESSION_COOKIE_SECURE=true` is required for any deployment served over HTTPS.** It
+defaults to `false` so `http://localhost` can log in at all; left false behind TLS, the
+session cookie — which *is* the credential — can travel in plaintext. The app logs a warning
+naming this setting on every boot where it is false.
+
+**Behind a reverse proxy, set `FORWARD_HEADERS_STRATEGY=framework`** — and only there. The
+rate limiter counts the socket's address, which a client cannot forge. Put a proxy in front
+without telling the application and every request appears to come from the proxy, so twenty
+failures from anyone locks out everyone; set it with a proxy that merely passes
+`X-Forwarded-For` through, and an attacker rotates the header for a fresh budget.
+
+### Container
+
+```bash
+docker network create sw-net
+docker run -d --name sw-db --network sw-net \
+  -e POSTGRES_DB=safeword -e POSTGRES_USER=safeword \
+  -e POSTGRES_PASSWORD=safeword postgres:16
+
+docker build -t safeword . && docker run -p 8083:8083 --network sw-net \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://sw-db:5432/safeword safeword
+```
+
+### CI
+
+**CI** ([`safeword-ci.yml`](../../.github/workflows/safeword-ci.yml)): build + test against a
+`postgres:16` service → container build → smoke test against a real database, asserting that
+a stranger gets `401` from both circle routes, that the pause screen and call check still
+answer `200` with no credentials, that ten anonymous requests create zero session rows, that
+a supplied passphrase is refused (via
+[`ci/assert_passphrase_refused.py`](ci/assert_passphrase_refused.py)), and that **no column
+in the database can hold a passphrase**.
 
 > **A CI bug worth recording.** That workflow was first derived from RenewalGuard's by regex
 > edit, and the substitution silently didn't match — so it POSTed to `/api/cases`, got a
@@ -170,15 +275,19 @@ container build → **smoke test asserting the security invariant** via
 |---|---|---|
 | 1 | **No mobile client.** Backend + logic only | The real product needs reliable push and a home-screen presence reachable in a panic — not buildable or verifiable here. **v0.2** |
 | 2 | **Escalation composed, not sent** | API says `actuallyDelivered: false` outright. A person who believes help is coming and is wrong is worse off than one who knows it isn't |
-| 3 | **No authentication** | A circle names real people and phone numbers. **Must fix before exposure** |
-| 4 | **In-memory storage** | Circles lost on restart |
+| 3 | ~~No authentication~~ — **resolved in v0.2** | |
+| 4 | ~~In-memory storage~~ — **resolved in v0.2** | |
 | 5 | **Risk weights are product judgement**, not a validated model | Tuned to fire early: an unnecessary pause costs an awkward call; a missed one averages >$38,000 |
 | 6 | **Loss figures from secondary reporting** — IC3 and FBI sites unreachable here | Base figures consistent across sources; the **year-over-year growth rate is disputed (+59% vs +37%)** and is never quoted in-app |
+| 7 | **One circle per account** | A person in two families — an adult child of separately-living parents — is not served yet |
+| 8 | **Responders are contacts, not accounts** | They cannot log in, see the circle, or confirm they got an alert |
+| 9 | **No password reset, no account deletion, no backups** | Same gaps RefillRadar has, and closing an account deletes the circle with it |
 
 ### Roadmap
 
-- **v0.2** — Flutter client with push (1); real escalation delivery (2)
-- **v0.3** — auth (3); PostgreSQL (4); practice-reminder scheduling
+- **v0.3** — Flutter client with push (1); real escalation delivery (2)
+- **v0.4** — password reset and account deletion (9); circles a responder can join (8)
+- **v0.5** — practice-reminder scheduling; multiple circles per person (7)
 
 **Non-goals** — voice deepfake detection (see above); call interception (largely impossible
 on iOS); account monitoring (Carefull and EverSafe do it better); fear-based marketing to an

@@ -1,56 +1,45 @@
 package com.safeword.store;
 
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-
-import org.springframework.stereotype.Repository;
 
 import com.safeword.domain.FamilyCircle;
 
 /**
- * In-memory storage for family circles.
+ * Stores family circles, reachable only through the account that owns them.
  *
- * <p>Combined interface and implementation here, unlike the other apps, because there is
- * genuinely less to store: SafeWord holds names, contact routes and one date. The heavier
- * repository abstraction in RefillRadar and RenewalGuard earns its place because those apps
- * will grow real schemas; this one may never need more than a small table.
- *
- * <p><b>Data is lost on restart</b>, which is a v0.1 limitation like the others.
+ * <p><b>There is deliberately no {@code findById}.</b> v0.1 had one, and the controller
+ * called it with an id taken straight from the URL - which is how anyone holding a circle id
+ * could read that family's setup and raise an alarm to them. Deleting the lookup is a
+ * stronger fix than guarding it: a method that does not exist cannot be called by a route
+ * somebody adds next year without thinking about ownership.
  */
-@Repository
-public class CircleRepository {
-
-    private final Map<String, FamilyCircle> storage = new ConcurrentHashMap<>();
+public interface CircleRepository {
 
     /**
-     * Saves a circle, replacing any existing entry with the same id.
+     * Creates or replaces the circle belonging to an account.
      *
-     * @param circle the circle to store
+     * <p>Replacing swaps the whole member list, so removing a responder is a save without
+     * them rather than a separate delete call nobody would remember to make.
+     *
+     * @param ownerAccountId the owning account
+     * @param circle         the circle to store
      * @return the stored circle
      */
-    public FamilyCircle save(FamilyCircle circle) {
-        storage.put(circle.id(), circle);
-        return circle;
-    }
+    FamilyCircle save(String ownerAccountId, FamilyCircle circle);
 
     /**
-     * Finds a circle by id.
+     * Finds the circle belonging to an account.
      *
-     * @param id the circle id
-     * @return the circle, or empty if unknown
+     * @param ownerAccountId the owning account
+     * @return the circle, or empty if the account has not set one up
      */
-    public Optional<FamilyCircle> findById(String id) {
-        return Optional.ofNullable(storage.get(id));
-    }
+    Optional<FamilyCircle> findByOwner(String ownerAccountId);
 
     /**
-     * Returns every stored circle.
+     * Whether an account already has a circle.
      *
-     * @return all circles, never {@code null}
+     * @param ownerAccountId the owning account
+     * @return {@code true} if one exists
      */
-    public List<FamilyCircle> findAll() {
-        return List.copyOf(storage.values());
-    }
+    boolean existsForOwner(String ownerAccountId);
 }

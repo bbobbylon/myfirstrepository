@@ -8,13 +8,15 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.safeword.auth.AccountPrincipal;
 import com.safeword.domain.CircleMember;
 import com.safeword.domain.FamilyCircle;
 import com.safeword.domain.MemberRole;
@@ -33,8 +35,11 @@ import jakarta.validation.Valid;
 /**
  * HTTP API for circles, the pause screen, risk checks and escalation.
  *
- * <p><b>No authentication in v0.1.</b> Circle ids are trusted as supplied. A circle names real
- * people and their phone numbers, so this must be fixed before exposure.
+ * <p><b>Two kinds of route, on purpose.</b> Anything under {@code /api/me} is one family's
+ * circle and needs a session. The pause screen, the call check, the scam patterns and the
+ * passphrase instructions stay open to anyone: they read nobody's data, and they are what a
+ * person uses <em>while a suspicious call is happening</em>. A login prompt at that moment
+ * would protect nothing and cost everything.
  *
  * <p>Note what has no endpoint: there is <b>no way to send SafeWord a passphrase</b>. That is
  * not an oversight, it is the design. {@link #createCircle} actively rejects any attempt.
@@ -77,47 +82,84 @@ public class SafeWordController {
     }
 
     /**
-     * Creates a family circle.
+     * Creates the caller's family circle.
      *
      * <p>Rejects the request outright if it carries anything in the {@code passphrase} field.
      * That field exists in the request type only so a client sending one gets a clear
      * explanation instead of silence - and so the refusal is testable.
      *
-     * @param request the circle to create
-     * @return {@code 201 Created}, or {@code 400} with an explanation if a secret was sent
+     * @param request   the circle to create
+     * @param principal the logged-in account, from the session
+     * @return {@code 201 Created}; {@code 400} if a secret was sent; {@code 409} if this
+     *         account already has a circle
      */
-    @PostMapping("/circles")
-    public ResponseEntity<?> createCircle(@Valid @RequestBody CircleRequest request) {
+    @PostMapping("/me/circle")
+    public ResponseEntity<?> createCircle(@Valid @RequestBody CircleRequest request,
+                                          @AuthenticationPrincipal AccountPrincipal principal) {
         if (protocol.rejectsSuppliedSecret(request.passphrase())) {
             return ResponseEntity.badRequest()
                     .body(new Refusal("passphrase_not_accepted", protocol.secretRejectionMessage()));
         }
 
+        // 409 rather than silently replacing. Overwriting would let a mistyped setup wipe a
+        // family's responders without anyone being told, and the people this protects are
+        // the least likely to notice a list got shorter.
+        if (circles.existsForOwner(principal.accountId())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new Refusal("circle_exists",
+                    "You already have a circle. Send PUT /api/me/circle to change it."));
+        }
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(circles.save(principal.accountId(), toCircle(request)));
+    }
+
+    /**
+     * Replaces the caller's circle, creating it if there is none.
+     *
+     * <p>A whole-circle replace rather than per-member endpoints: removing a responder is
+     * then a save without them, and there is no path where a client thinks it deleted
+     * somebody and the server kept them.
+     *
+     * @param request   the desired circle
+     * @param principal the logged-in account, from the session
+     * @return the stored circle, or {@code 400} if a secret was sent
+     */
+    @PutMapping("/me/circle")
+    public ResponseEntity<?> replaceCircle(@Valid @RequestBody CircleRequest request,
+                                           @AuthenticationPrincipal AccountPrincipal principal) {
+        if (protocol.rejectsSuppliedSecret(request.passphrase())) {
+            return ResponseEntity.badRequest()
+                    .body(new Refusal("passphrase_not_accepted", protocol.secretRejectionMessage()));
+        }
+
+        return ResponseEntity.ok(circles.save(principal.accountId(), toCircle(request)));
+    }
+
+    private FamilyCircle toCircle(CircleRequest request) {
         List<CircleMember> members = request.members() == null ? List.of()
                 : request.members().stream()
                         .map(m -> new CircleMember(UUID.randomUUID().toString(), m.name(),
                                 m.role() == null ? MemberRole.RESPONDER : m.role(), m.contact()))
                         .toList();
 
-        FamilyCircle circle = new FamilyCircle(
-                UUID.randomUUID().toString(), request.name(),
+        // The id here is only used when the circle is new; a replace keeps the id the row
+        // already has, so updating a circle never mints a new one.
+        return new FamilyCircle(UUID.randomUUID().toString(), request.name(),
                 request.passphraseAgreedOn(), members);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(circles.save(circle));
     }
 
     /**
-     * Setup status for a circle, including what is still outstanding.
+     * Setup status for the caller's own circle.
      *
-     * @param circleId the circle
-     * @return the status, or {@code 404} if unknown
+     * @param principal the logged-in account, from the session
+     * @return the status, or {@code 404} if this account has not set up a circle
      */
-    @GetMapping("/circles/{circleId}/status")
-    public ResponseEntity<CircleStatus> circleStatus(@PathVariable String circleId) {
+    @GetMapping("/me/circle/status")
+    public ResponseEntity<CircleStatus> circleStatus(
+            @AuthenticationPrincipal AccountPrincipal principal) {
         LocalDate today = LocalDate.now(clock);
-        return circles.findById(circleId)
+        return circles.findByOwner(principal.accountId())
                 .map(circle -> ResponseEntity.ok(new CircleStatus(
-                        circle.id(),
                         circle.name(),
                         circle.passphraseStatus(today).name(),
                         circle.passphraseStatus(today).explanation(),
@@ -177,14 +219,15 @@ public class SafeWordController {
      * push or SMS. The response says so, because someone who wrongly believes help is coming
      * is worse off than someone who knows it is not.
      *
-     * @param circleId  the circle
      * @param request   what the call is about
-     * @return the escalation result, or {@code 404} if the circle is unknown
+     * @param principal the logged-in account, from the session
+     * @return the escalation result, or {@code 404} if this account has no circle
      */
-    @PostMapping("/circles/{circleId}/escalate")
-    public ResponseEntity<EscalationResult> escalate(@PathVariable String circleId,
-                                                     @RequestBody EscalateRequest request) {
-        return circles.findById(circleId).map(circle -> {
+    @PostMapping("/me/circle/escalate")
+    public ResponseEntity<EscalationResult> escalate(@RequestBody EscalateRequest request,
+                                                     @AuthenticationPrincipal
+                                                     AccountPrincipal principal) {
+        return circles.findByOwner(principal.accountId()).map(circle -> {
             List<CircleMember> responders = circle.responders();
             String protectedName = circle.members().stream()
                     .filter(m -> m.role() == MemberRole.PROTECTED_PERSON)
@@ -224,8 +267,14 @@ public class SafeWordController {
                             boolean standaloneRedFlag, List<ScamPattern> likelyPatterns,
                             String caveat) { }
 
-    /** Circle setup status. */
-    public record CircleStatus(String circleId, String name, String passphraseStatus,
+    /**
+     * Circle setup status.
+     *
+     * <p>No {@code circleId}. No endpoint accepts one any more, so returning it would be an
+     * identifier with nothing to identify - and a standing invitation to add a route that
+     * takes it back.
+     */
+    public record CircleStatus(String name, String passphraseStatus,
                                String passphraseExplanation, boolean setupComplete,
                                List<String> outstandingSteps, int responderCount,
                                String usageRule) { }

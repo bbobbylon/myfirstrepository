@@ -1,0 +1,20 @@
+# The `memory` profile: run SafeWord with no database at all.
+#
+#     java -jar target/safeword-0.1.0-SNAPSHOT.jar --spring.profiles.active=memory
+#
+# EVERY CIRCLE IS LOST ON RESTART. For this app that is worse than it sounds: a family whose
+# circle quietly disappeared still sees the app open and still believes somebody will be
+# called. This exists for a five-minute demo and for tests, and is deliberately opt-in - you
+# cannot reach it by misconfiguration.
+#
+# Excluding the auto-configuration (rather than just swapping the repository beans) means the
+# application never opens a connection pool, never runs a migration, and starts with no
+# database present at all.
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - org.springframework.boot.autoconfigure.transaction.jta.JtaAutoConfiguration

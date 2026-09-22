@@ -44,6 +44,52 @@
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
 
+    <!-- JPA + Hibernate. v0.2 moves circles off the heap and into PostgreSQL. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- PostgreSQL driver. Runtime scope: application code never imports it, so compiling
+         against it would let a Postgres-only class leak into otherwise portable code. -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Flyway owns the schema; Hibernate's ddl-auto stays 'validate'. An ORM that rewrites
+         tables at startup can drop a column, and its data, with nobody approving a diff. -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+
+    <!-- Authentication and authorisation. Until v0.2 a circle id was trusted as supplied,
+         which meant anyone holding one could raise an alarm to somebody else's family. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <!-- Sessions in PostgreSQL rather than the container's heap: a deploy no longer logs
+         everyone out, and a session becomes instantly revocable by deleting its row. -->
+    <dependency>
+      <groupId>org.springframework.session</groupId>
+      <artifactId>spring-session-jdbc</artifactId>
+    </dependency>
+
+    <!-- MockMvc support for authenticating as a given user in tests. -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- JUnit 5, AssertJ, Mockito, MockMvc. Test scope only - never shipped. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

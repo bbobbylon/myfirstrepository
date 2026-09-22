@@ -187,6 +187,18 @@ The 16 security tests are written as **attacks that used to succeed**, not as fe
 checks. Two were verified by re-introducing the original bugs and confirming the tests go
 red.
 
+> **Correction, recorded here rather than in the file it belongs to.** `V2`'s comment says
+> the Spring Session DDL was copied from `spring-session-jdbc` **3.4.3**; the build actually
+> resolves **3.5.7** (`mvn dependency:list`). The SQL is right — the two versions ship
+> byte-identical schema files — only the version named is wrong.
+>
+> It is written here because **an applied migration must not be edited**. Flyway checksums
+> the whole file, comments included, so fixing that one word made every database that had
+> already run `V2` refuse to start: `Migration checksum mismatch for migration version 2`.
+> That was measured, not guessed — the edit was made, the failure reproduced locally, and
+> the edit reverted. The rule is worth more than the tidy comment: correct the record
+> somewhere mutable, or supersede the migration with a new one.
+
 ## v0.5: rate limiting, and the shape of a guessing attack
 
 v0.4 checked passwords. Nothing limited how often they could be checked, so the protection

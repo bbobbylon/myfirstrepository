@@ -1,35 +1,65 @@
 package com.safeword;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.hamcrest.Matchers;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.safeword.domain.Account;
+import com.safeword.store.AccountRepository;
+import com.safeword.support.Auth;
+import com.safeword.support.DatabaseCleaner;
+import com.safeword.support.TestAccounts;
 
-/** End-to-end test of the wired application over HTTP. */
+/**
+ * End-to-end test of the wired application over HTTP.
+ *
+ * <p>From v0.2 the circle routes need a session, so each test runs as an account. The
+ * public routes below are performed with no authentication on purpose - that they stay
+ * reachable to an anonymous caller is a product requirement, not an accident of config.
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(DatabaseCleaner.class)
 class SafeWordApplicationTest {
 
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private AccountRepository accounts;
+
+    @Autowired
+    private DatabaseCleaner databaseCleaner;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private Account owner;
+
+    @BeforeEach
+    void setUp() {
+        databaseCleaner.clean();
+        owner = accounts.save(TestAccounts.user("circle-owner"));
+    }
+
     private String createCircle(String body) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/circles")
+        MvcResult result = mockMvc.perform(post("/api/me/circle")
+                        .with(Auth.as(owner)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText();
@@ -40,7 +70,9 @@ class SafeWordApplicationTest {
     void apiRefusesToAcceptAPassphrase() throws Exception {
         // The single most important test in SafeWord. If this ever passes a secret through,
         // the product's central promise is broken.
-        mockMvc.perform(post("/api/circles").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/me/circle")
+                        .with(Auth.as(owner)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"The Family","passphrase":"bluebird","members":[]}
                                 """))
@@ -58,7 +90,7 @@ class SafeWordApplicationTest {
                   {"name":"Ana","role":"RESPONDER","contact":"+15551234567"}]}
                 """);
 
-        mockMvc.perform(get("/api/circles/" + id + "/status"))
+        mockMvc.perform(get("/api/me/circle/status").with(Auth.as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passphraseStatus").value("NOT_AGREED"))
                 .andExpect(jsonPath("$.setupComplete").value(false))
@@ -75,7 +107,7 @@ class SafeWordApplicationTest {
                   {"name":"Ana","role":"RESPONDER","contact":"+15551234567"}]}
                 """.formatted(java.time.LocalDate.now().minusDays(7)));
 
-        mockMvc.perform(get("/api/circles/" + id + "/status"))
+        mockMvc.perform(get("/api/me/circle/status").with(Auth.as(owner)))
                 .andExpect(jsonPath("$.passphraseStatus").value("AGREED"))
                 .andExpect(jsonPath("$.setupComplete").value(true))
                 .andExpect(jsonPath("$.responderCount").value(1))
@@ -137,7 +169,8 @@ class SafeWordApplicationTest {
                   {"name":"Sam","role":"RESPONDER","contact":"+15559876543"}]}
                 """.formatted(java.time.LocalDate.now().minusDays(7)));
 
-        MvcResult result = mockMvc.perform(post("/api/circles/" + id + "/escalate")
+        MvcResult result = mockMvc.perform(post("/api/me/circle/escalate")
+                        .with(Auth.as(owner)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"aboutMoney":true}
@@ -177,8 +210,11 @@ class SafeWordApplicationTest {
     }
 
     @Test
-    @DisplayName("an unknown circle is a 404")
-    void unknownCircleIs404() throws Exception {
-        mockMvc.perform(get("/api/circles/nope/status")).andExpect(status().isNotFound());
+    @DisplayName("an account that has not set up a circle gets a 404, not an empty circle")
+    void accountWithoutACircleIs404() throws Exception {
+        // 404 rather than a hollow 200: "you have no circle" and "your circle is empty" are
+        // different answers, and only one of them tells the user to go and set it up.
+        mockMvc.perform(get("/api/me/circle/status").with(Auth.as(owner)))
+                .andExpect(status().isNotFound());
     }
 }
