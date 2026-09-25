@@ -14,10 +14,12 @@ on:
   push:
     paths:
       - 'apps/refillradar/**'
+      - 'libs/common-auth/**'
       - '.github/workflows/refillradar-ci.yml'
   pull_request:
     paths:
       - 'apps/refillradar/**'
+      - 'libs/common-auth/**'
       - '.github/workflows/refillradar-ci.yml'
 
 jobs:
@@ -59,6 +61,12 @@ jobs:
           # download into a few seconds on every run after the first.
           cache: 'maven'
 
+      # The application depends on com.commonauth:common-auth, which is published
+      # nowhere - it is built from this repository. Install it before the app resolves it.
+      - name: Build the shared auth module
+        working-directory: libs/common-auth
+        run: mvn -B install -DskipTests
+
       - name: Build and run tests
         run: mvn -B verify
 
@@ -92,9 +100,10 @@ jobs:
       - name: Build image
         run: |
           docker build \
+            -f apps/refillradar/Dockerfile \
             -t refillradar:${{ github.sha }} \
             -t refillradar:latest \
-            apps/refillradar
+            .
 
       # A user-defined network rather than the job's `services:` block, because this
       # container is started with `docker run` and so is not on the job's service network.

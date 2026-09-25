@@ -3,8 +3,8 @@ package com.safeword.support;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.safeword.domain.Account;
-import com.safeword.domain.AccountRole;
+import com.commonauth.domain.Account;
+import com.commonauth.domain.AccountRole;
 
 /**
  * Builds accounts for tests.

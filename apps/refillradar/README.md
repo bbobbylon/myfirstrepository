@@ -33,7 +33,8 @@ JDK 21+, Maven 3.9+, PostgreSQL 14+. No network, no API key.
 # One-time: create the database the defaults expect
 createdb refillradar && createuser refillradar   # or see Deployment for the psql version
 
-mvn test                # 153 tests, ~35s
+mvn -f ../../libs/common-auth install   # the shared auth module, built here
+mvn test                # 141 tests here + 12 in the module, ~35s
 mvn spring-boot:run     # :8080
 ```
 
@@ -187,6 +188,18 @@ The 16 security tests are written as **attacks that used to succeed**, not as fe
 checks. Two were verified by re-introducing the original bugs and confirming the tests go
 red.
 
+## The auth code now lives in a shared module
+
+Accounts, sessions, the login throttle and the security *hardening* moved to
+[`libs/common-auth`](../../libs/common-auth/) once SafeWord needed the same three things and
+got them by copy and paste. A third copy is where that stops being acceptable: this is
+security code, and N copies of a login throttle is how one app silently keeps a bug after
+the others are fixed.
+
+What stayed here: **which routes are public**, because that is a product decision rather
+than a security default, and the migrations, because each app owns its own version line.
+The module's README records the two Spring scanning traps the move shook out.
+
 > **Correction, recorded here rather than in the file it belongs to.** `V2`'s comment says
 > the Spring Session DDL was copied from `spring-session-jdbc` **3.4.3**; the build actually
 > resolves **3.5.7** (`mvn dependency:list`). The SQL is right — the two versions ship
@@ -318,16 +331,20 @@ Defaulting to `fixture` means a misconfigured deploy fails towards **obviously f
 sudo -u postgres psql -c "CREATE USER refillradar WITH PASSWORD 'refillradar'"
 sudo -u postgres createdb -O refillradar refillradar
 
-# 2. Run. Flyway creates the schema on first start; Hibernate then validates against it.
+# 2. The shared auth module. Published nowhere - it is built from this repository, so it
+#    has to be installed before this app can resolve it. Repeat after any change to it.
+mvn -f ../../libs/common-auth install
+
+# 3. Run. Flyway creates the schema on first start; Hibernate then validates against it.
 mvn package && java -jar target/refillradar-0.1.0-SNAPSHOT.jar
 
 # Overrides, all optional:
 java -jar target/*.jar --refillradar.shortage-source=openfda      # live FDA API
 java -jar target/*.jar --spring.profiles.active=memory            # no database, loses data
 java -jar target/*.jar \
-  --refillradar.security.login-throttle.max-failures-per-username=5 \
-  --refillradar.security.login-throttle.max-failures-per-ip=20 \
-  --refillradar.security.login-throttle.window=PT15M              # rate limits, defaults shown
+  --auth.login-throttle.max-failures-per-username=5 \
+  --auth.login-throttle.max-failures-per-ip=20 \
+  --auth.login-throttle.window=PT15M                              # rate limits, defaults shown
 ```
 
 Override with `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD`. **Passwords go in a
@@ -355,7 +372,10 @@ docker run -d --name rr-db --network rr-net \
   -e POSTGRES_DB=refillradar -e POSTGRES_USER=refillradar \
   -e POSTGRES_PASSWORD=refillradar postgres:16
 
-docker build -t refillradar . && docker run -p 8080:8080 --network rr-net \
+# Built from the REPOSITORY ROOT, not this directory: the image needs libs/common-auth,
+# and a build context rooted here cannot see a sibling directory.
+docker build -f apps/refillradar/Dockerfile -t refillradar ../..
+docker run -p 8080:8080 --network rr-net \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://rr-db:5432/refillradar refillradar
 ```
 

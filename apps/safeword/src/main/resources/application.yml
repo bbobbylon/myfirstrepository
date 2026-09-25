@@ -54,17 +54,23 @@ server:
         # false, so the insecure setting is visible rather than buried in a file.
         secure: ${SESSION_COOKIE_SECURE:false}
 
-safeword:
-  security:
-    # Ported from RefillRadar v0.5 with the same numbers and the same reasoning: two
-    # counters, a window that heals rather than a lockout, and a refusal that costs the
-    # server nothing because it happens before the password is verified.
-    login-throttle:
-      max-failures-per-username: 5
-      max-failures-per-ip: 20
-      window: PT15M
-      max-registrations-per-ip: 5
-      registration-window: PT1H
+# Shared by every app in this repository via the common-auth module, which is why the key
+# is `auth` rather than the application's own name. The reasoning behind these numbers is in
+# libs/common-auth (LoginThrottle) and in apps/refillradar/README.md: two counters, a window
+# that heals rather than a lockout, and a refusal that costs the server nothing because it
+# happens before the password is verified.
+auth:
+  login-throttle:
+    # Per username. Five is generous for typing errors and mean for guessing.
+    max-failures-per-username: 5
+    # Per source address, across all usernames - this is the one that catches spraying:
+    # one popular password tried against a thousand accounts leaves one failure on each.
+    max-failures-per-ip: 20
+    window: PT15M
+    # Registration is metered separately, and every attempt counts rather than only the
+    # ones that create an account: a "username taken" answer is itself worth rationing.
+    max-registrations-per-ip: 5
+    registration-window: PT1H
 
 logging:
   level:

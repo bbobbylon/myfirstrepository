@@ -36,6 +36,7 @@ JDK 21+, Maven 3.9+. Port **8083**.
 sudo -u postgres psql -c "CREATE USER safeword WITH PASSWORD 'safeword'"
 sudo -u postgres createdb -O safeword safeword
 
+mvn -f ../../libs/common-auth install   # the shared auth module, built here
 mvn test                # 71 tests, offline (needs the database above)
 mvn spring-boot:run
 ```
@@ -105,10 +106,15 @@ disappear on restart are not accounts; durable circles nobody owns are still rea
 anyone who guesses an id. And a circle that quietly vanished is worse here than in most
 apps — the family still sees the app open and still believes someone will be called.
 
-Authentication, sessions and the login rate limiter are **ported from RefillRadar v0.4–v0.5**
+Authentication, sessions and the login rate limiter came **from RefillRadar v0.4–v0.5**
 with the same reasoning and the same numbers: sessions rather than JWTs so "my phone was
 taken" takes effect now, a delegating password encoder, 5 failures per username and 20 per
 address in a 15-minute window that heals by itself.
+
+They arrived by copy and paste, which is exactly why they no longer live here at all: the
+second copy was the signal to extract [`libs/common-auth`](../../libs/common-auth/). What
+stayed in this app is the part that is genuinely SafeWord's — **which routes are public**,
+below.
 
 ### What stayed public, on purpose
 
@@ -218,6 +224,7 @@ column for one, which CI checks against the live schema rather than against a re
 sudo -u postgres psql -c "CREATE USER safeword WITH PASSWORD 'safeword'"
 sudo -u postgres createdb -O safeword safeword
 
+mvn -f ../../libs/common-auth install     # once, and after any change to it
 mvn package && java -jar target/safeword-0.1.0-SNAPSHOT.jar
 
 # Overrides, all optional:
@@ -247,7 +254,10 @@ docker run -d --name sw-db --network sw-net \
   -e POSTGRES_DB=safeword -e POSTGRES_USER=safeword \
   -e POSTGRES_PASSWORD=safeword postgres:16
 
-docker build -t safeword . && docker run -p 8083:8083 --network sw-net \
+# Built from the REPOSITORY ROOT, not this directory: the image needs libs/common-auth,
+# and a build context rooted here cannot see a sibling directory.
+docker build -f apps/safeword/Dockerfile -t safeword ../..
+docker run -p 8083:8083 --network sw-net \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://sw-db:5432/safeword safeword
 ```
 

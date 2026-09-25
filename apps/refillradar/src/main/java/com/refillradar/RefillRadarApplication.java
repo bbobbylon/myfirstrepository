@@ -22,11 +22,16 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * thing it promises. {@link com.refillradar.sync.ShortageSyncJob} now runs nightly and
  * speaks first.
  *
+ * <p><b>Scanning note.</b> The shared auth code lives in {@code com.commonauth}, outside
+ * this class's package, so component scanning is widened to reach it. The matching JPA
+ * entity and repository scans live in {@code JpaScanConfig} instead, because they must not
+ * apply under the {@code memory} profile - see that class for what broke.
+ *
  * @see com.refillradar.matching.ShortageMatcher the core engine
  * @see com.refillradar.shortage.ShortageSource where shortage data comes from
  * @see com.refillradar.sync.ShortageSyncJob the nightly sync that closes the loop
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.refillradar", "com.commonauth"})
 @EnableScheduling
 public class RefillRadarApplication {
 

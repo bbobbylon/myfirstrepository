@@ -7,19 +7,26 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.refillradar.domain.Account;
+import com.commonauth.domain.Account;
 import com.refillradar.shortage.ShortageSource;
-import com.refillradar.store.AccountRepository;
+import com.commonauth.store.AccountRepository;
 import com.refillradar.support.Auth;
 import com.refillradar.support.DatabaseCleaner;
 import com.refillradar.support.TestAccounts;
@@ -34,11 +41,41 @@ import com.refillradar.support.TestAccounts;
  * schema. Unit tests can all pass while the application fails to start.
  *
  * <p>See {@code README.md} for the one command that starts a local database.
+ *
+ * <p><b>The clock is fixed here, and it had to be.</b> This test used to post a hardcoded
+ * {@code lastFilledOn} and assert a risk band, which meant the answer depended on the day
+ * the suite ran: nine days of supply remaining is HIGH, six is CRITICAL, and the calendar
+ * turns one into the other without anybody touching the code. It passed for three days and
+ * then started failing on a refactor that had nothing to do with dates. The application
+ * already exposes its {@link Clock} as a bean precisely so a test can pin it - that seam
+ * was built for business logic and simply never used here.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(DatabaseCleaner.class)
+@Import({DatabaseCleaner.class, RefillRadarApplicationTest.FixedClock.class})
 class RefillRadarApplicationTest {
+
+    /** The day this test believes it is. Chosen so the medication below has 11 days left. */
+    private static final Instant TODAY = Instant.parse("2026-09-20T09:00:00Z");
+
+    /**
+     * Replaces the application's clock for this test only.
+     *
+     * <p>{@code @Primary} because the application defines its own {@code Clock} bean; this
+     * one wins wherever a single {@code Clock} is injected.
+     */
+    @TestConfiguration
+    static class FixedClock {
+
+        /**
+         * @return a clock stopped on {@link #TODAY}
+         */
+        @Bean
+        @Primary
+        Clock fixedClock() {
+            return Clock.fixed(TODAY, ZoneOffset.UTC);
+        }
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -113,6 +150,9 @@ class RefillRadarApplicationTest {
                 // finds. ShortageMatcherTest covers the other path, where the FDA record
                 // has no brand name and the match can only happen via "amphetamine".
                 .andExpect(jsonPath("$.matches[0].matchedOn").value("adderall"))
+                // 2026-09-01 plus 30 days of supply runs out on 2026-10-01; the fixed
+                // clock says it is 2026-09-20, so 11 days remain, which bands as HIGH.
+                // With the real clock this assertion silently changed meaning every day.
                 .andExpect(jsonPath("$.matches[0].risk").value("HIGH"));
     }
 

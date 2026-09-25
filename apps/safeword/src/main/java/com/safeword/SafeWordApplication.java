@@ -17,10 +17,15 @@ import org.springframework.context.annotation.Bean;
  *
  * <p>Run with {@code ./mvnw spring-boot:run}, or as a JAR.
  *
+ * <p><b>Scanning note.</b> The shared auth code lives in {@code com.commonauth}, outside
+ * this class's package, so component scanning is widened to reach it. The matching JPA
+ * entity and repository scans live in {@code JpaScanConfig} instead, because they must not
+ * apply under the {@code memory} profile - see that class for what broke.
+ *
  * @see com.safeword.passphrase.PassphraseProtocol why a shared secret beats deepfake detection
  * @see com.safeword.pause.PauseChecklist why friction is the countermeasure
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.safeword", "com.commonauth"})
 public class SafeWordApplication {
 
     /**

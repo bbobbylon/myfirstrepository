@@ -16,7 +16,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import com.safeword.domain.Account;
+import com.commonauth.domain.Account;
+import com.commonauth.store.AccountRepository;
 import com.safeword.domain.CircleMember;
 import com.safeword.domain.FamilyCircle;
 import com.safeword.domain.MemberRole;

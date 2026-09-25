@@ -3,8 +3,8 @@ package com.refillradar.support;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.refillradar.domain.Account;
-import com.refillradar.domain.AccountRole;
+import com.commonauth.domain.Account;
+import com.commonauth.domain.AccountRole;
 
 /**
  * Builds accounts for tests.

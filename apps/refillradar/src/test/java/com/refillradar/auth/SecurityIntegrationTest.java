@@ -23,9 +23,10 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.refillradar.domain.Account;
+import com.commonauth.domain.Account;
+import com.commonauth.store.AccountRepository;
+import com.commonauth.web.AuthController;
 import com.refillradar.domain.Medication;
-import com.refillradar.store.AccountRepository;
 import com.refillradar.store.MedicationRepository;
 import com.refillradar.support.Auth;
 import com.refillradar.support.DatabaseCleaner;

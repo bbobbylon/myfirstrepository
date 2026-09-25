@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.refillradar.auth.AccountPrincipal;
+import com.commonauth.web.AccountPrincipal;
 import com.refillradar.domain.Medication;
 import com.refillradar.domain.ShortageMatch;
 import com.refillradar.domain.ShortageRecord;

@@ -22,9 +22,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-import com.refillradar.domain.Account;
-import com.refillradar.domain.AccountRole;
-import com.refillradar.store.AccountRepository;
+import com.commonauth.domain.Account;
+import com.commonauth.domain.AccountRole;
+import com.commonauth.store.AccountRepository;
 import com.refillradar.support.DatabaseCleaner;
 
 /**

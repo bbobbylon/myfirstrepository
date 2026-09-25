@@ -43,6 +43,8 @@ sources could not be opened directly during research — this is documented in t
 ```
 .
 ├── README.md                    ← you are here
+├── libs/
+│   └── common-auth/             ← accounts, sessions and login rate limiting, shared
 ├── apps/
 │   ├── refillradar/             ← app #2, v0.1 built (Java 21 + Spring Boot)
 │   ├── shadeclock/              ← app #1, v0.1 built (Java 21 + Spring Boot)

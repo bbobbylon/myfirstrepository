@@ -4,8 +4,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-import com.refillradar.auth.AccountPrincipal;
-import com.refillradar.domain.Account;
+import com.commonauth.web.AccountPrincipal;
+import com.commonauth.domain.Account;
 
 /**
  * Authenticates a MockMvc request as a given account.

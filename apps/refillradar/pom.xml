@@ -51,6 +51,17 @@
       <artifactId>spring-boot-starter-mail</artifactId>
     </dependency>
 
+    <!-- Accounts, sessions, the login throttle and the shared security hardening.
+         Brings spring-boot-starter-security and spring-session-jdbc with it, which is why
+         neither is declared here any more: one place decides the auth stack.
+         Build it first - `mvn -f libs/common-auth install` - or use the repo-root Docker
+         build, which does that for you. -->
+    <dependency>
+      <groupId>com.commonauth</groupId>
+      <artifactId>common-auth</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+
     <!-- JPA + Hibernate. v0.3 moves storage off the heap and into PostgreSQL. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -77,20 +88,7 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
 
-    <!-- Authentication and authorisation. v0.4 - until now userId was trusted as sent. -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-security</artifactId>
-    </dependency>
 
-    <!-- Sessions in PostgreSQL rather than in the servlet container's heap. Same lesson as
-         the alert ledger: state that only exists in memory does not survive a restart, and
-         here that would log every user out on every deploy. It also makes a session
-         instantly revocable - delete the row and the cookie is dead. -->
-    <dependency>
-      <groupId>org.springframework.session</groupId>
-      <artifactId>spring-session-jdbc</artifactId>
-    </dependency>
 
     <!-- MockMvc support for authenticating as a given user in tests. -->
     <dependency>

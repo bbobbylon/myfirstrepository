@@ -12,10 +12,12 @@ on:
   push:
     paths:
       - 'apps/safeword/**'
+      - 'libs/common-auth/**'
       - '.github/workflows/safeword-ci.yml'
   pull_request:
     paths:
       - 'apps/safeword/**'
+      - 'libs/common-auth/**'
       - '.github/workflows/safeword-ci.yml'
 
 jobs:
@@ -53,6 +55,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      # The application depends on com.commonauth:common-auth, which is published
+      # nowhere - it is built from this repository. Install it before the app resolves it.
+      - name: Build the shared auth module
+        working-directory: libs/common-auth
+        run: mvn -B install -DskipTests
+
       - name: Build and run tests
         run: mvn -B verify
 
@@ -73,7 +81,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image
-        run: docker build -t safeword:${{ github.sha }} apps/safeword
+        run: docker build -f apps/safeword/Dockerfile -t safeword:${{ github.sha }} .
 
       # A user-defined network rather than the job's `services:` block, because this
       # container is started with `docker run` and so is not on the job's service network.

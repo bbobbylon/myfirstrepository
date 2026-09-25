@@ -69,23 +69,25 @@ server:
         # false, so the insecure setting is visible on every boot rather than buried here.
         secure: ${SESSION_COOKIE_SECURE:false}
 
-refillradar:
-  security:
-    # How hard it is to guess a password here. Failures age out on their own; nothing has to
-    # be unlocked by an administrator, because a lockout that needs one is a way for an
-    # attacker to take someone's account offline just by knowing their username.
-    login-throttle:
-      # Per username. Five is generous for typing errors and mean for guessing.
-      max-failures-per-username: 5
-      # Per source address, across all usernames - this is the one that catches spraying:
-      # one popular password tried against a thousand accounts leaves one failure on each.
-      max-failures-per-ip: 20
-      window: PT15M
-      # Registration is metered separately, and every attempt counts rather than only the
-      # ones that create an account: a "username taken" answer is itself worth rationing.
-      max-registrations-per-ip: 5
-      registration-window: PT1H
+# Shared by every app in this repository via the common-auth module, which is why the key
+# is `auth` rather than the application's own name. The reasoning behind these numbers is in
+# libs/common-auth (LoginThrottle) and in apps/refillradar/README.md: two counters, a window
+# that heals rather than a lockout, and a refusal that costs the server nothing because it
+# happens before the password is verified.
+auth:
+  login-throttle:
+    # Per username. Five is generous for typing errors and mean for guessing.
+    max-failures-per-username: 5
+    # Per source address, across all usernames - this is the one that catches spraying:
+    # one popular password tried against a thousand accounts leaves one failure on each.
+    max-failures-per-ip: 20
+    window: PT15M
+    # Registration is metered separately, and every attempt counts rather than only the
+    # ones that create an account: a "username taken" answer is itself worth rationing.
+    max-registrations-per-ip: 5
+    registration-window: PT1H
 
+refillradar:
   # `fixture` = replay the bundled recorded response (offline, deterministic)
   # `openfda` = call the live https://api.fda.gov/drug/shortages.json
   shortage-source: fixture

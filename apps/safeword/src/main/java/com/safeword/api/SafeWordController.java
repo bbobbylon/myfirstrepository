@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.safeword.auth.AccountPrincipal;
+import com.commonauth.web.AccountPrincipal;
 import com.safeword.domain.CircleMember;
 import com.safeword.domain.FamilyCircle;
 import com.safeword.domain.MemberRole;

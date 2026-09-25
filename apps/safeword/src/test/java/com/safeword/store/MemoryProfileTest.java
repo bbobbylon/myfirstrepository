@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.commonauth.store.AccountRepository;
+import com.commonauth.store.LoginAttemptStore;
 import com.safeword.domain.CircleMember;
 import com.safeword.domain.FamilyCircle;
 import com.safeword.domain.MemberRole;

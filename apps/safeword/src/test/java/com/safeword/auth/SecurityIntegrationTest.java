@@ -20,8 +20,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.safeword.domain.Account;
-import com.safeword.store.AccountRepository;
+import com.commonauth.domain.Account;
+import com.commonauth.store.AccountRepository;
 import com.safeword.support.Auth;
 import com.safeword.support.DatabaseCleaner;
 import com.safeword.support.TestAccounts;

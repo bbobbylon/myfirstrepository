@@ -14,7 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.refillradar.domain.Account;
+import com.commonauth.domain.Account;
 import com.refillradar.shortage.ShortageFetchException;
 import com.refillradar.shortage.ShortageSource;
 import com.refillradar.support.Auth;
