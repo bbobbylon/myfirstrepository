@@ -1,0 +1,330 @@
+# CI for RenewalGuard.
+#
+# No third-party network calls. It DOES need a database as of v0.2: the persistence tests
+# assert things a HashMap passes trivially and PostgreSQL might not - a nullable DATE
+# surviving a round trip, an enum stored by name rather than ordinal, and the CHECK
+# constraints on state_code and response_window_days actually firing.
+#
+# The container job is NOT branch-gated, so the image is verified before a merge rather
+# than after it - see apps/refillradar/README.md for the incident that established that.
+name: RenewalGuard CI
+
+on:
+  push:
+    paths:
+      - 'apps/renewalguard/**'
+      - 'libs/common-auth/**'
+      - '.github/workflows/renewalguard-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/renewalguard/**'
+      - 'libs/common-auth/**'
+      - '.github/workflows/renewalguard-ci.yml'
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/renewalguard
+
+    # Matches the defaults in application.yml, so no test needs overriding config.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: renewalguard
+          POSTGRES_USER: renewalguard
+          POSTGRES_PASSWORD: renewalguard
+        ports:
+          - 5432:5432
+        # Without this the build can start before the database accepts connections.
+        options: >-
+          --health-cmd "pg_isready -U renewalguard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          # Caches ~/.m2 keyed on pom.xml, turning a ~2 minute dependency
+          # download into a few seconds on every run after the first.
+          cache: 'maven'
+
+      # The application depends on com.commonauth:common-auth, which is published
+      # nowhere - it is built from this repository. Install it before the app resolves it.
+      - name: Build the shared auth module
+        working-directory: libs/common-auth
+        run: mvn -B install -DskipTests
+
+      - name: Build and run tests
+        run: mvn -B verify
+
+      - name: Upload test reports
+        # always() so reports are published even when tests FAIL - which is
+        # precisely when you need to read them.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renewalguard-surefire-reports
+          path: apps/renewalguard/target/surefire-reports/
+          retention-days: 7
+
+  docker:
+    name: Build container image
+    runs-on: ubuntu-latest
+    needs: build          # never build an image from code that failed its tests
+
+    # Deliberately NOT gated on master/main. An earlier version of this file
+    # was, and PR #1 showed why that is backwards: the job skipped, so the
+    # image stayed unverified until AFTER the merge that was supposed to be
+    # protected by it.
+    #
+    # The correct split is: VERIFY everywhere, PUBLISH only from main. Building
+    # and smoke-testing on a PR costs a minute; the registry push is what
+    # gets branch-gated when it is added.
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built from the REPOSITORY ROOT (note the trailing dot), because the image needs
+      # libs/common-auth and a context rooted at apps/renewalguard/ cannot see a sibling.
+      - name: Build image
+        run: docker build -f apps/renewalguard/Dockerfile -t renewalguard:${{ github.sha }} .
+
+      # A user-defined network rather than the job's `services:` block, because this
+      # container is started with `docker run` and so is not on the job's service network.
+      - name: Start a database for the smoke test
+        run: |
+          docker network create renewalguard-net
+          docker run -d --name renewalguard-db --network renewalguard-net \
+            -e POSTGRES_DB=renewalguard \
+            -e POSTGRES_USER=renewalguard \
+            -e POSTGRES_PASSWORD=renewalguard \
+            postgres:16
+
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec renewalguard-db pg_isready -U renewalguard >/dev/null 2>&1; then
+              echo "PostgreSQL ready after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::PostgreSQL did not become ready within 60s"
+              docker logs renewalguard-db
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Smoke test the image
+        run: |
+          # One helper, so every failure below prints the container's logs and cleans up.
+          # Without it a failing assertion leaves no diagnosis and leaks two containers.
+          fail() {
+            echo "::error::$1"
+            docker logs renewalguard
+            docker rm -f renewalguard renewalguard-db
+            exit 1
+          }
+
+          docker run -d --name renewalguard -p 8082:8082 \
+            --network renewalguard-net \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://renewalguard-db:5432/renewalguard \
+            -e SPRING_DATASOURCE_USERNAME=renewalguard \
+            -e SPRING_DATASOURCE_PASSWORD=renewalguard \
+            renewalguard:${{ github.sha }}
+
+          # Wait for the JVM to bind before curling. Do NOT rely on
+          # --retry-connrefused alone: it does not cover curl error 56 (connection
+          # reset), which is what Docker's proxy returns while the container is up but
+          # the app has not yet bound its port. That cost a red build on PR #1.
+          echo "Waiting for application startup..."
+          for i in $(seq 1 60); do
+            if docker logs renewalguard 2>&1 | grep -q "Started RenewalGuardApplication"; then
+              echo "Application started after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              fail "Application did not start within 60s"
+            fi
+            sleep 1
+          done
+
+          # ---- 1. Anonymous callers are refused ------------------------------------
+          # The v0.1 shape of this request returned somebody's benefits case.
+          echo "--- anonymous case routes (expect 401) ---"
+          for path in "me/cases" "me/cases/any-id/status" "me/cases/any-id/reminder"; do
+            CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                        --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
+                        "localhost:8082/api/$path")
+            [ "$CODE" = "401" ] || fail "Anonymous /api/$path returned $CODE, expected 401"
+          done
+          echo "OK: a stranger cannot read a benefits case"
+
+          # ---- 2. Anonymous traffic must not create sessions -----------------------
+          # Spring Security's default RequestCache stashes each rejected request in a NEW
+          # session, which is an unauthenticated way to grow the database. This is the
+          # assertion that has to happen against a REAL server: the MockMvc version is
+          # distorted by csrf() swapping the app's CSRF repository for a session-backed
+          # one, so AnonymousSessionTest needs its own isolated context to be meaningful.
+          for i in $(seq 1 10); do
+            curl --silent --output /dev/null localhost:8082/api/me/cases
+          done
+          SESSIONS=$(docker exec renewalguard-db psql -U renewalguard -d renewalguard -tAc \
+            "SELECT count(*) FROM SPRING_SESSION")
+          [ "$SESSIONS" = "0" ] || fail "10 anonymous requests created $SESSIONS session rows, expected 0"
+          echo "OK: 10 anonymous requests created 0 sessions"
+
+          # ---- 3. Register and log in two separate users --------------------------
+          # Writes the CSRF token to "$1.xsrf" rather than to stdout, deliberately. Called as
+          # XSRF=$(register_and_login alice), any fail() inside would have its ::error::
+          # annotation and `docker logs` output captured into the variable instead of
+          # reaching the build log - so the build would still stop (set -e sees the non-zero
+          # substitution) but with no diagnosis of why. Checked, not assumed: `V=$(f)` where
+          # f exits 1 halts a `bash -e` script and prints nothing at all.
+          register_and_login() {
+            curl --fail --silent --show-error -c "$1.jar" -X POST localhost:8082/api/auth/register \
+                 -H 'Content-Type: application/json' \
+                 -d "{\"username\":\"$1\",\"password\":\"a-long-enough-ci-passphrase\"}" \
+                 -o /dev/null || fail "Registration failed for $1"
+            curl --fail --silent --show-error -c "$1.jar" -b "$1.jar" -X POST localhost:8082/api/auth/login \
+                 -H 'Content-Type: application/json' \
+                 -d "{\"username\":\"$1\",\"password\":\"a-long-enough-ci-passphrase\"}" \
+                 -o "$1.login.json" || fail "Login failed for $1"
+            if grep -q "a-long-enough-ci-passphrase" "$1.login.json"; then
+              fail "The login response for $1 echoed the password back"
+            fi
+            grep XSRF-TOKEN "$1.jar" | awk '{print $7}' > "$1.xsrf"
+            [ -s "$1.xsrf" ] || fail "No XSRF-TOKEN cookie was issued to $1, so no write can be made"
+          }
+
+          register_and_login alice
+          register_and_login mallory
+          ALICE_XSRF=$(cat alice.xsrf)
+          MALLORY_XSRF=$(cat mallory.xsrf)
+          echo "OK: two accounts registered and logged in, no credential in either response"
+
+          # ---- 4. Alice files a case, and it lands in PostgreSQL ------------------
+          CREATED=$(curl --silent --output created.json --write-out '%{http_code}' \
+                         -b alice.jar -X POST localhost:8082/api/cases \
+                         -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $ALICE_XSRF" \
+                         -d '{"stateCode":"ca","category":"EXPANSION_ADULT",
+                              "renewalDueOn":"2027-03-01","responseWindowDays":30}')
+          [ "$CREATED" = "201" ] || fail "Creating a case returned $CREATED, expected 201"
+          cat created.json; echo
+
+          CASE_ID=$(python3 -c "import json;print(json.load(open('created.json'))['id'])")
+          [ -n "$CASE_ID" ] || fail "No case id came back"
+
+          # Normalised on the way in, and read back from the database rather than a map.
+          curl --fail --silent -b alice.jar "localhost:8082/api/me/cases/$CASE_ID/status" \
+               -o status.json || fail "Alice could not read her own case"
+          grep -q '"stateCode":"CA"' status.json || fail "stateCode was not normalised to upper case"
+          # The field that lived in a ConcurrentHashMap on the controller until v0.2.
+          grep -q '"documentsReadyBy":"2027-01-30"' status.json \
+            || fail "The supplied 30-day response window did not survive the round trip"
+          echo "OK: a case round-trips through PostgreSQL, window included"
+
+          # ---- 5. THE security invariant: mallory cannot touch alice's case -------
+          echo "--- mallory attacks alice's case (expect 404 every time) ---"
+          for path in "status" "reminder"; do
+            CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                        -b mallory.jar "localhost:8082/api/me/cases/$CASE_ID/$path")
+            [ "$CODE" = "404" ] || fail "Mallory reading alice's $path returned $CODE, expected 404"
+          done
+
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -b mallory.jar -X DELETE "localhost:8082/api/me/cases/$CASE_ID" \
+                      -H "X-XSRF-TOKEN: $MALLORY_XSRF")
+          [ "$CODE" = "404" ] || fail "Mallory deleting alice's case returned $CODE, expected 404"
+
+          # A 404 is not enough on its own - assert the row survived the attempt.
+          REMAINING=$(docker exec renewalguard-db psql -U renewalguard -d renewalguard -tAc \
+            "SELECT count(*) FROM benefit_cases WHERE id = '$CASE_ID'")
+          [ "$REMAINING" = "1" ] || fail "Alice's case did not survive Mallory's delete"
+
+          # And mallory's own list is empty, so nothing leaked sideways.
+          curl --fail --silent -b mallory.jar localhost:8082/api/me/cases -o mallory.cases.json \
+            || fail "Mallory could not list her own (empty) cases"
+          [ "$(cat mallory.cases.json)" = "[]" ] \
+            || fail "Mallory's case list was not empty: $(cat mallory.cases.json)"
+          echo "OK: mallory cannot read, delete or list alice's case"
+
+          # ---- 6. The refusal is not an existence oracle -------------------------
+          # A real-but-not-yours id must answer exactly as a fabricated one does, or
+          # enumerating ids still reveals which cases exist - and "this person has a
+          # Medicaid case" is itself the sensitive fact.
+          REAL=$(curl --silent -b mallory.jar -w '|%{http_code}' \
+                      "localhost:8082/api/me/cases/$CASE_ID/status")
+          FAKE=$(curl --silent -b mallory.jar -w '|%{http_code}' \
+                      "localhost:8082/api/me/cases/00000000-0000-0000-0000-000000000000/status")
+          [ "$REAL" = "$FAKE" ] \
+            || fail "A real case answered differently from a fictional one: '$REAL' vs '$FAKE'"
+          echo "OK: someone else's case is indistinguishable from one that does not exist"
+
+          # ---- 7. A write with no CSRF token is refused --------------------------
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -b alice.jar -X POST localhost:8082/api/cases \
+                      -H 'Content-Type: application/json' \
+                      -d '{"stateCode":"CA","renewalDueOn":"2027-03-01"}')
+          [ "$CODE" = "403" ] || fail "A tokenless write returned $CODE, expected 403"
+          echo "OK: a write without a CSRF token is refused"
+
+          # ---- 8. The throttle actually costs an attacker something --------------
+          echo "--- six wrong passwords for alice (expect a 429 by the sixth) ---"
+          for i in $(seq 1 5); do
+            curl --silent --output /dev/null -X POST localhost:8082/api/auth/login \
+                 -H 'Content-Type: application/json' \
+                 -d '{"username":"alice","password":"wrong-password-guess"}'
+          done
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -X POST localhost:8082/api/auth/login \
+                      -H 'Content-Type: application/json' \
+                      -d '{"username":"alice","password":"wrong-password-guess"}')
+          [ "$CODE" = "429" ] || fail "The sixth wrong password returned $CODE, expected 429"
+
+          # The CORRECT password is refused too, which is observable proof that the
+          # refusal happens BEFORE the password is verified rather than after.
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -X POST localhost:8082/api/auth/login \
+                      -H 'Content-Type: application/json' \
+                      -d '{"username":"alice","password":"a-long-enough-ci-passphrase"}')
+          [ "$CODE" = "429" ] || fail "The right password after five failures returned $CODE, expected 429"
+
+          # Exactly five recorded: a refused attempt must NOT be recorded, or an attacker
+          # could hold a victim behind the block indefinitely by continuing to knock.
+          ATTEMPTS=$(docker exec renewalguard-db psql -U renewalguard -d renewalguard -tAc \
+            "SELECT count(*) FROM login_attempts WHERE attempt_key LIKE '%alice%'")
+          [ "$ATTEMPTS" = "5" ] || fail "Expected exactly 5 recorded attempts for alice, found $ATTEMPTS"
+          echo "OK: refused after five failures, refused the right password too, recorded exactly 5"
+
+          # ---- 9. Flyway really migrated the database ----------------------------
+          echo "--- checking Flyway actually migrated the database ---"
+          TABLES=$(docker exec renewalguard-db psql -U renewalguard -d renewalguard -tAc \
+            "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public'")
+          echo "tables: $TABLES"
+          for table in benefit_cases flyway_schema_history login_attempts users spring_session; do
+            echo "$TABLES" | grep -q "$table" || fail "Expected table '$table' is missing - Flyway did not run"
+          done
+
+          # There must be nowhere to store the data this app refuses to collect.
+          FORBIDDEN=$(docker exec renewalguard-db psql -U renewalguard -d renewalguard -tAc \
+            "SELECT coalesce(string_agg(table_name || '.' || column_name, ','), '') \
+             FROM information_schema.columns \
+             WHERE table_schema='public' \
+               AND (column_name LIKE '%ssn%' OR column_name LIKE '%social_security%' \
+                    OR column_name LIKE '%income%' OR column_name LIKE '%household%' \
+                    OR column_name LIKE '%immigration%')")
+          [ -z "$FORBIDDEN" ] \
+            || fail "The schema can store eligibility data this app must not collect: $FORBIDDEN"
+          echo "OK: no column in this database can hold SSN, income, household or immigration data"
+
+          echo "Smoke test passed: the container builds, migrates its database, keeps strangers out of a benefits case, refuses to be an existence oracle, and costs a password guesser something."
+          docker rm -f renewalguard renewalguard-db

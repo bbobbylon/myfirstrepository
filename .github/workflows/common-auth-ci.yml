@@ -1,0 +1,52 @@
+# CI for the shared auth module.
+#
+# It has no database and no network: the login throttle is pure policy over an injected
+# clock and an in-memory store, which is exactly why that split exists. The applications
+# that consume this module run the integration half against a real PostgreSQL.
+#
+# This workflow does NOT gate the apps - each app's own workflow builds the module itself,
+# so a break here shows up there too. Having both is deliberate: this one says "the shared
+# code is broken", the app ones say "the shared code broke an app", and the first is a much
+# faster thing to read.
+name: common-auth CI
+
+on:
+  push:
+    paths:
+      - 'libs/common-auth/**'
+      - '.github/workflows/common-auth-ci.yml'
+  pull_request:
+    paths:
+      - 'libs/common-auth/**'
+      - '.github/workflows/common-auth-ci.yml'
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: libs/common-auth
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build and run tests
+        run: mvn -B verify
+
+      - name: Upload test reports
+        # always() so reports are published even when tests FAIL - which is
+        # precisely when you need to read them.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: common-auth-surefire-reports
+          path: libs/common-auth/target/surefire-reports/
+          retention-days: 7

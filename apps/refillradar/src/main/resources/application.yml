@@ -1,0 +1,114 @@
+# RefillRadar configuration
+#
+# NOTE ON THE DEFAULT: `shortage-source` defaults to `fixture`, not `openfda`.
+# A misconfigured deployment therefore fails towards data that is OBVIOUSLY fake
+# (every response is labelled "NOT LIVE") rather than towards silently broken live
+# data. Failing loudly is worth more than failing conveniently.
+
+spring:
+  application:
+    name: refillradar
+  jackson:
+    # Serialise dates as "2026-09-19", not as an array of numbers.
+    serialization:
+      write-dates-as-timestamps: false
+
+  # Storage defaults to PostgreSQL. An unreachable database stops the application from
+  # starting, which is the correct failure: unlike a missing shortage feed - visible in
+  # every response - silent data loss looks exactly like working software until someone's
+  # list turns up empty. Override each value with the matching SPRING_DATASOURCE_* env var.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/refillradar}
+    username: ${SPRING_DATASOURCE_USERNAME:refillradar}
+    password: ${SPRING_DATASOURCE_PASSWORD:refillradar}
+
+  jpa:
+    hibernate:
+      # validate, never update or create. Flyway owns the schema; Hibernate only checks the
+      # entities against it and refuses to start on a mismatch. An ORM that rewrites tables
+      # at startup can drop a column - and its data - with nobody approving a diff.
+      ddl-auto: validate
+    # Off by default: an ORM issuing one query per row looks fine in development and melts
+    # under real data. Turn on temporarily to find those, not permanently.
+    show-sql: false
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  session:
+    store-type: jdbc
+    timeout: 30m
+    jdbc:
+      # never: Flyway created SPRING_SESSION in V2. Two things creating the same tables is
+      # how they drift apart, and the loser is whichever ran second.
+      initialize-schema: never
+
+server:
+  port: 8080
+  # Leave this alone unless a proxy you control is in front of the application. The rate
+  # limiter counts per source address, and with no strategy set that address is the socket's
+  # - a fact the client cannot forge. Set it to `framework` (or `native`) ONLY behind a proxy
+  # that overwrites X-Forwarded-For, otherwise anyone can rotate the header for a fresh
+  # budget, or forge someone else's address and spend theirs.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
+  servlet:
+    session:
+      cookie:
+        # The session cookie is the credential. JavaScript has no reason to read it, so
+        # HttpOnly means an XSS bug cannot steal a login.
+        http-only: true
+        # Strict: the browser will not attach this cookie to a request originating from
+        # another site, which is the main structural defence against CSRF. The token check
+        # in SecurityConfig is the second.
+        same-site: strict
+        # MUST be true anywhere this is served over HTTPS - otherwise the session cookie
+        # travels in the clear on any accidental http:// request. Defaults to false only so
+        # that http://localhost works; the application logs a warning at startup when it is
+        # false, so the insecure setting is visible on every boot rather than buried here.
+        secure: ${SESSION_COOKIE_SECURE:false}
+
+# Shared by every app in this repository via the common-auth module, which is why the key
+# is `auth` rather than the application's own name. The reasoning behind these numbers is in
+# libs/common-auth (LoginThrottle) and in apps/refillradar/README.md: two counters, a window
+# that heals rather than a lockout, and a refusal that costs the server nothing because it
+# happens before the password is verified.
+auth:
+  login-throttle:
+    # Per username. Five is generous for typing errors and mean for guessing.
+    max-failures-per-username: 5
+    # Per source address, across all usernames - this is the one that catches spraying:
+    # one popular password tried against a thousand accounts leaves one failure on each.
+    max-failures-per-ip: 20
+    window: PT15M
+    # Registration is metered separately, and every attempt counts rather than only the
+    # ones that create an account: a "username taken" answer is itself worth rationing.
+    max-registrations-per-ip: 5
+    registration-window: PT1H
+
+refillradar:
+  # `fixture` = replay the bundled recorded response (offline, deterministic)
+  # `openfda` = call the live https://api.fda.gov/drug/shortages.json
+  shortage-source: fixture
+
+  # `log`   = write alerts to the application log and report them as NOT delivered
+  # `email` = send via SMTP (requires spring.mail.* to be configured)
+  # Defaults to `log` so a deployment without mail configured produces visible output
+  # rather than silently notifying nobody.
+  alert-channel: log
+
+  mail:
+    from: alerts@refillradar.invalid
+
+  sync:
+    # Nightly at 03:00. Alerts composed overnight are read in the morning, when a
+    # pharmacy or prescriber can actually be called.
+    cron: "0 0 3 * * *"
+
+  openfda:
+    endpoint: https://api.fda.gov/drug/shortages.json
+
+logging:
+  level:
+    com.refillradar: INFO

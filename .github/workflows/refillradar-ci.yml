@@ -1,0 +1,335 @@
+# CI for RefillRadar.
+#
+# No third-party network calls: shortage data comes from a recorded fixture on the
+# classpath. A build that depends on someone else's API goes red when their server has a
+# bad day, and a CI signal nobody trusts is worse than no CI at all.
+#
+# It DOES need a database as of v0.3. That is a deliberate trade: the persistence tests
+# assert things a HashMap passes trivially and PostgreSQL might not - a date surviving a
+# round trip, an enum stored by name, a CHECK constraint actually firing. Testing storage
+# against a map proves nothing about storage.
+name: RefillRadar CI
+
+on:
+  push:
+    paths:
+      - 'apps/refillradar/**'
+      - 'libs/common-auth/**'
+      - '.github/workflows/refillradar-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/refillradar/**'
+      - 'libs/common-auth/**'
+      - '.github/workflows/refillradar-ci.yml'
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/refillradar
+
+    # Matches the defaults in application.yml, so no test needs overriding config.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: refillradar
+          POSTGRES_USER: refillradar
+          POSTGRES_PASSWORD: refillradar
+        ports:
+          - 5432:5432
+        # Without this the build can start before the database accepts connections.
+        # Same class of race as the container smoke test below, and the same fix:
+        # wait for readiness rather than hoping.
+        options: >-
+          --health-cmd "pg_isready -U refillradar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          # Caches ~/.m2 keyed on pom.xml, turning a ~2 minute dependency
+          # download into a few seconds on every run after the first.
+          cache: 'maven'
+
+      # The application depends on com.commonauth:common-auth, which is published
+      # nowhere - it is built from this repository. Install it before the app resolves it.
+      - name: Build the shared auth module
+        working-directory: libs/common-auth
+        run: mvn -B install -DskipTests
+
+      - name: Build and run tests
+        run: mvn -B verify
+
+      - name: Upload test reports
+        # always() so reports are published even when tests FAIL - which is
+        # precisely when you need to read them.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: apps/refillradar/target/surefire-reports/
+          retention-days: 7
+
+  docker:
+    name: Build container image
+    runs-on: ubuntu-latest
+    needs: build          # never build an image from code that failed its tests
+
+    # Deliberately NOT gated on master/main. An earlier version of this file
+    # was, and PR #1 showed why that is backwards: the job skipped, so the
+    # image stayed unverified until AFTER the merge that was supposed to be
+    # protected by it. Finding out the container is broken once it is already
+    # on the main branch is the opposite of what CI is for.
+    #
+    # The correct split is: VERIFY everywhere, PUBLISH only from main. Building
+    # and smoke-testing on a PR costs a minute; the registry push below is what
+    # gets branch-gated when it is added.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build \
+            -f apps/refillradar/Dockerfile \
+            -t refillradar:${{ github.sha }} \
+            -t refillradar:latest \
+            .
+
+      # A user-defined network rather than the job's `services:` block, because this
+      # container is started with `docker run` and so is not on the job's service network.
+      # On a shared network both containers resolve each other by name, which is also how
+      # the app will find its database in any real deployment.
+      - name: Start a database for the smoke test
+        run: |
+          docker network create refillradar-net
+          docker run -d --name refillradar-db --network refillradar-net \
+            -e POSTGRES_DB=refillradar \
+            -e POSTGRES_USER=refillradar \
+            -e POSTGRES_PASSWORD=refillradar \
+            postgres:16
+
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec refillradar-db pg_isready -U refillradar >/dev/null 2>&1; then
+              echo "PostgreSQL ready after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::PostgreSQL did not become ready within 60s"
+              docker logs refillradar-db
+              exit 1
+            fi
+            sleep 1
+          done
+
+      # Deployment is intentionally NOT wired up yet. When it is, add a separate
+      # step here carrying `if: github.ref == 'refs/heads/master'` - the PUSH is
+      # what belongs behind a branch gate, not the build and smoke test above.
+      # Tag with ${{ github.sha }} - never "latest" alone, because you cannot
+      # roll back to "latest".
+      - name: Smoke test the image
+        run: |
+          # Pointing the container at the real database proves more than the memory
+          # profile would: Flyway migrates, Hibernate validates the entities against the
+          # migrated schema, and a mismatch between the two fails the build here rather
+          # than on someone's first deployment.
+          docker run -d --name refillradar -p 8080:8080 \
+            --network refillradar-net \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://refillradar-db:5432/refillradar \
+            -e SPRING_DATASOURCE_USERNAME=refillradar \
+            -e SPRING_DATASOURCE_PASSWORD=refillradar \
+            refillradar:${{ github.sha }}
+
+          # Wait for the JVM to actually bind the port before curling it.
+          #
+          # The first version of this step trusted `curl --retry-connrefused` alone
+          # and failed on PR #1 with `curl: (56) Recv failure: Connection reset by
+          # peer`, 150ms after `docker run` returned. The cause: --retry-connrefused
+          # covers ECONNREFUSED only, and a reset is NOT a refusal. While the
+          # container is up but the app inside has not bound 8080, Docker's port
+          # proxy ACCEPTS the connection and then resets it - so curl saw a
+          # non-retryable error and gave up instantly against an app needing ~2s.
+          #
+          # Reproduced locally against a socket that accepts-then-resets:
+          #   --retry 4 --retry-delay 1 --retry-connrefused ............ gave up in 6ms
+          #   ...same + --retry-all-errors ............................. retried, 4016ms
+          #
+          # It passed on a local machine precisely because there is no proxy in
+          # front there: the same race produces error 7 (refused), which
+          # --retry-connrefused does handle. Green locally, red in a container.
+          echo "Waiting for application startup..."
+          for i in $(seq 1 60); do
+            if docker logs refillradar 2>&1 | grep -q "Started RefillRadarApplication"; then
+              echo "Application started after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::Application did not start within 60s"
+              docker logs refillradar
+              docker rm -f refillradar refillradar-db
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # ---- 1. An unauthenticated request must be REFUSED ------------------------
+          # First assertion, deliberately. Everything below proves the happy path works;
+          # only this one proves the closed path stays closed. --retry-all-errors is the
+          # load-bearing flag here; see above.
+          echo "--- GET /api/me/supply-check with no credentials (expect 401) ---"
+          ANON_STATUS=$(curl --silent --show-error --output anon.json --write-out '%{http_code}' \
+                             --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
+                             localhost:8080/api/me/supply-check)
+          if [ "$ANON_STATUS" != "401" ]; then
+            echo "::error::Anonymous request returned $ANON_STATUS, expected 401. A medication list must never be readable without logging in."
+            cat anon.json
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: anonymous access refused with 401"
+
+          # ---- 2. An anonymous request must not create a session --------------------
+          # Regression guard for a real bug found by probing a running server: Spring
+          # Security's default RequestCache stashed every rejected request in a NEW session,
+          # so 20 unauthenticated GETs made 20 SPRING_SESSION rows - a way to grow the
+          # database with no credentials. It lives here rather than in a unit test because
+          # MockMvc does not reproduce a real container's session handling.
+          for i in $(seq 1 10); do
+            curl --silent --output /dev/null localhost:8080/api/me/supply-check
+          done
+          ANON_SESSIONS=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
+            "SELECT count(*) FROM SPRING_SESSION")
+          if [ "$ANON_SESSIONS" != "0" ]; then
+            echo "::error::10 anonymous requests created $ANON_SESSIONS session rows, expected 0. Unauthenticated traffic must not consume storage."
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: 10 anonymous requests created 0 sessions"
+
+          # ---- 3. Register, log in, and read our own data ---------------------------
+          echo "--- register + login ---"
+          curl --fail --silent --show-error -c jar.txt -X POST localhost:8080/api/auth/register \
+               -H 'Content-Type: application/json' \
+               -d '{"username":"ci-smoke-test","password":"a-long-enough-ci-passphrase"}' \
+               -o register.json || {
+            echo "::error::Registration failed"; cat register.json; docker logs refillradar
+            docker rm -f refillradar refillradar-db; exit 1; }
+
+          curl --fail --silent --show-error -c jar.txt -b jar.txt -X POST localhost:8080/api/auth/login \
+               -H 'Content-Type: application/json' \
+               -d '{"username":"ci-smoke-test","password":"a-long-enough-ci-passphrase"}' \
+               -o login.json || {
+            echo "::error::Login failed"; cat login.json; docker logs refillradar
+            docker rm -f refillradar refillradar-db; exit 1; }
+
+          # The response must never echo the password back in any form.
+          if grep -qi "passphrase" register.json login.json; then
+            echo "::error::A credential appeared in an auth response body"
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: registered and logged in; no credential in the response"
+
+          echo "--- GET /api/me/supply-check as the logged-in user ---"
+          if ! curl --fail --silent --show-error -b jar.txt \
+                    localhost:8080/api/me/supply-check -o response.json; then
+            echo "::error::Authenticated request failed. Container logs follow:"
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+
+          cat response.json; echo
+
+          # Proves more than "it booted": the fixture loaded and the engine ran.
+          if ! grep -q '"shortagesScanned":8' response.json; then
+            echo "::error::Unexpected response - expected 8 shortage records from the fixture"
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+
+          # ---- 4. Guessing a password must be stopped -------------------------------
+          # v0.4 added a password check; until v0.5 nothing limited how often it could be
+          # guessed at, so the protection was only ever as strong as the weakest password
+          # any user had chosen - with unlimited tries to find that user.
+          echo "--- five wrong passwords, then a sixth (expect 401 x5, then 429) ---"
+          for i in $(seq 1 5); do
+            WRONG=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                         -X POST localhost:8080/api/auth/login \
+                         -H 'Content-Type: application/json' \
+                         -d '{"username":"ci-smoke-test","password":"definitely-not-it"}')
+            if [ "$WRONG" != "401" ]; then
+              echo "::error::Wrong-password attempt $i returned $WRONG, expected 401"
+              docker logs refillradar
+              docker rm -f refillradar refillradar-db
+              exit 1
+            fi
+          done
+
+          THROTTLED=$(curl --silent --output throttled.json --dump-header throttled.h \
+                           --write-out '%{http_code}' \
+                           -X POST localhost:8080/api/auth/login \
+                           -H 'Content-Type: application/json' \
+                           -d '{"username":"ci-smoke-test","password":"definitely-not-it"}')
+          if [ "$THROTTLED" != "429" ] || ! grep -qi '^retry-after:' throttled.h; then
+            echo "::error::The sixth wrong password returned $THROTTLED with no Retry-After, expected 429. Nothing is slowing down password guessing."
+            cat throttled.json throttled.h
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+
+          # The CORRECT password must be refused too. That is the observable proof that the
+          # refusal happens before the credential check rather than after it - which is what
+          # stops an attacker spending this server's CPU on BCrypt at will.
+          RIGHT_WHILE_BLOCKED=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                                     -X POST localhost:8080/api/auth/login \
+                                     -H 'Content-Type: application/json' \
+                                     -d '{"username":"ci-smoke-test","password":"a-long-enough-ci-passphrase"}')
+          if [ "$RIGHT_WHILE_BLOCKED" != "429" ]; then
+            echo "::error::A blocked caller got $RIGHT_WHILE_BLOCKED for the right password, expected 429. The credentials are being checked before the throttle."
+            docker logs refillradar
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+
+          # Refused attempts must write nothing: otherwise an attacker who is already
+          # blocked can still grow the table by continuing to knock.
+          RECORDED=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
+            "SELECT count(*) FROM login_attempts WHERE attempt_key = 'user:ci-smoke-test'")
+          if [ "$RECORDED" != "5" ]; then
+            echo "::error::Seven attempts recorded $RECORDED rows, expected exactly 5. A refused attempt must not be recorded."
+            docker rm -f refillradar refillradar-db
+            exit 1
+          fi
+          echo "OK: refused after five failures, refused the right password too, recorded exactly 5 attempts"
+
+          # Proves persistence is wired end to end in the image, not just in the tests.
+          echo "--- checking Flyway actually migrated the database ---"
+          TABLES=$(docker exec refillradar-db psql -U refillradar -d refillradar -tAc \
+            "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public'")
+          echo "tables: $TABLES"
+          for table in alert_records contacts flyway_schema_history login_attempts medications users spring_session; do
+            if ! echo "$TABLES" | grep -q "$table"; then
+              echo "::error::Expected table '$table' is missing - Flyway did not run"
+              docker logs refillradar
+              docker rm -f refillradar refillradar-db
+              exit 1
+            fi
+          done
+
+          echo "Smoke test passed: container builds, boots as non-root, migrates its database, refuses anonymous access, throttles password guessing, and serves a real response to a logged-in user."
+          docker rm -f refillradar refillradar-db

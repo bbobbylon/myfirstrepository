@@ -1,0 +1,128 @@
+{
+  "_fixture_note": [
+    "ILLUSTRATIVE SAMPLE DATA - NOT A REAL API CAPTURE.",
+    "",
+    "The field names and overall envelope follow openFDA's published searchable",
+    "fields for /drug/shortages.json (generic_name, proprietary_name, company_name,",
+    "status, availability, shortage_reason, therapeutic_category, dosage_form,",
+    "strength, initial_posting_date, update_date).",
+    "",
+    "The VALUES are hand-written to exercise the matching engine, including awkward",
+    "cases a live feed will not produce on demand. The build environment could not",
+    "reach api.fda.gov (egress policy), so this was NOT captured from the live API.",
+    "",
+    "TODO before production: replace this file with a real recorded response, and",
+    "confirm the actual `status` vocabulary and date format against it."
+  ],
+  "meta": {
+    "disclaimer": "Sample data for development. Not for clinical use.",
+    "results": { "skip": 0, "limit": 100, "total": 8 }
+  },
+  "results": [
+    {
+      "generic_name": "AMPHETAMINE ASPARTATE; AMPHETAMINE SULFATE; DEXTROAMPHETAMINE SACCHARATE; DEXTROAMPHETAMINE SULFATE",
+      "proprietary_name": "Adderall",
+      "company_name": "Sample Pharmaceuticals Inc.",
+      "status": "Current",
+      "availability": "Limited supply; allocation in effect",
+      "shortage_reason": "Demand increase for the drug",
+      "therapeutic_category": ["Central Nervous System"],
+      "dosage_form": "TABLET",
+      "strength": ["5 mg", "10 mg", "20 mg"],
+      "initial_posting_date": "20241014",
+      "update_date": "20260901"
+    },
+    {
+      "generic_name": "METHYLPHENIDATE HYDROCHLORIDE",
+      "proprietary_name": "Concerta",
+      "company_name": "Sample Labs LLC",
+      "status": "Current",
+      "availability": "Some presentations on back order",
+      "shortage_reason": "Manufacturing delay",
+      "therapeutic_category": ["Central Nervous System"],
+      "dosage_form": "TABLET, EXTENDED RELEASE",
+      "strength": ["18 mg", "27 mg", "36 mg"],
+      "initial_posting_date": "20250203",
+      "update_date": "20260815"
+    },
+    {
+      "generic_name": "SEMAGLUTIDE",
+      "proprietary_name": "Ozempic",
+      "company_name": "Sample Biopharma",
+      "status": "Current",
+      "availability": "Intermittent supply across strengths",
+      "shortage_reason": "Demand increase for the drug",
+      "therapeutic_category": ["Hormones"],
+      "dosage_form": "INJECTION",
+      "strength": ["0.25 mg/dose", "0.5 mg/dose", "1 mg/dose"],
+      "initial_posting_date": "20250610",
+      "update_date": "20260902"
+    },
+    {
+      "generic_name": "IFOSFAMIDE",
+      "proprietary_name": null,
+      "company_name": "Sample Oncology Supply",
+      "status": "Current",
+      "availability": "Critically limited",
+      "shortage_reason": "Manufacturing quality problem",
+      "therapeutic_category": ["Chemotherapy"],
+      "dosage_form": "INJECTION",
+      "strength": ["1 g/20 mL", "3 g/60 mL"],
+      "initial_posting_date": "20260401",
+      "update_date": "20260830"
+    },
+    {
+      "generic_name": "LEVETIRACETAM",
+      "proprietary_name": "Keppra",
+      "company_name": "Sample Generics Co.",
+      "status": "Currently in Shortage",
+      "availability": "Oral solution affected; tablets unaffected",
+      "shortage_reason": "Shortage of an active ingredient",
+      "therapeutic_category": ["Central Nervous System"],
+      "dosage_form": "SOLUTION",
+      "strength": ["100 mg/mL"],
+      "initial_posting_date": "20260215",
+      "update_date": "20260810"
+    },
+    {
+      "generic_name": "AMOXICILLIN",
+      "proprietary_name": "Amoxil",
+      "company_name": "Sample Antibiotics Ltd",
+      "status": "Resolved",
+      "availability": "Supply has recovered",
+      "shortage_reason": "Demand increase for the drug",
+      "resolved_note": "All presentations available as of this update.",
+      "therapeutic_category": ["Anti-Infective"],
+      "dosage_form": "CAPSULE",
+      "strength": ["250 mg", "500 mg"],
+      "initial_posting_date": "20240922",
+      "update_date": "20260120"
+    },
+    {
+      "generic_name": "IOHEXOL",
+      "proprietary_name": "Omnipaque",
+      "company_name": "Sample Imaging Products",
+      "status": "Under Review Pending Confirmation",
+      "availability": "Reports of regional supply constraints",
+      "shortage_reason": "Information not available",
+      "therapeutic_category": ["Diagnostic Agents"],
+      "dosage_form": "INJECTION",
+      "strength": ["300 mgI/mL", "350 mgI/mL"],
+      "initial_posting_date": "20260705",
+      "update_date": "20260905"
+    },
+    {
+      "generic_name": "AMLODIPINE BESYLATE; BENAZEPRIL HYDROCHLORIDE",
+      "proprietary_name": "Lotrel",
+      "company_name": "Sample Cardio Inc.",
+      "status": "Current",
+      "availability": "Certain strengths on back order",
+      "shortage_reason": "Discontinuation of the drug by a manufacturer",
+      "therapeutic_category": ["Cardiovascular"],
+      "dosage_form": "CAPSULE",
+      "strength": ["5 mg/10 mg", "10 mg/20 mg"],
+      "initial_posting_date": "20260118",
+      "update_date": "20260722"
+    }
+  ]
+}
