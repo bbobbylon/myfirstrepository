@@ -17,9 +17,12 @@ advice for ordinary code — an abstraction drawn from one example is a guess. F
 whose failure mode is a breach, the second occurrence is the signal.
 
 **The third app is the receipt.** RenewalGuard v0.2 adopted the whole stack as a dependency
-line, a fifteen-line `SecurityConfig` holding only its route rules, and a `JpaScanConfig` — no
-copied login throttle, no copied session config, no third chance to fix a bug in two places out
-of three. Consumers: **RefillRadar**, **SafeWord**, **RenewalGuard**.
+line, a short `SecurityConfig` holding only its route rules, and a `JpaScanConfig` — no copied
+login throttle, no copied session config, no third chance to fix a bug in two places out of three.
+ShadeClock v0.2 followed on the same terms.
+
+Consumers: **RefillRadar**, **SafeWord**, **RenewalGuard**, **ShadeClock** — every Java app in the
+repository. BirthPath is Python/FastAPI and stores nothing, so it has no accounts to share.
 
 ## What is in here
 

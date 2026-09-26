@@ -4,15 +4,28 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 
-# Copy the POM alone first, then resolve dependencies. Docker caches each layer,
-# so as long as pom.xml is unchanged this expensive step is reused even when the
-# source changes. Copying everything up front would re-download the internet on
-# every single edit.
-COPY pom.xml .
-RUN mvn -B dependency:go-offline
+# NOTE THE BUILD CONTEXT. This image is built from the REPOSITORY ROOT, not from this
+# directory:
+#
+#     docker build -f apps/shadeclock/Dockerfile -t shadeclock .
+#
+# because the application depends on libs/common-auth, and a build context rooted at
+# apps/shadeclock/ cannot see a sibling directory. Build it the old way and Maven fails
+# resolving com.commonauth:common-auth - it is published nowhere, it is built here.
 
-COPY src ./src
-RUN mvn -B clean package -DskipTests
+# The shared module first. It changes far less often than the application, so this layer
+# stays cached across ordinary edits, and installing it into the local repository is what
+# lets the next step resolve it.
+COPY libs/common-auth libs/common-auth
+RUN mvn -B -f libs/common-auth/pom.xml install -DskipTests
+
+# Then the application's POM alone, so dependency resolution is its own cached layer.
+# Copying the sources up front would re-download the internet on every single edit.
+COPY apps/shadeclock/pom.xml apps/shadeclock/pom.xml
+RUN mvn -B -f apps/shadeclock/pom.xml dependency:go-offline
+
+COPY apps/shadeclock/src apps/shadeclock/src
+RUN mvn -B -f apps/shadeclock/pom.xml clean package -DskipTests
 
 # ---- Stage 2: runtime --------------------------------------------------------
 # Only the JRE, and only the finished JAR. Nothing from stage 1 comes along
@@ -25,12 +38,9 @@ WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
 USER app
 
-COPY --from=build /build/target/shadeclock-*.jar app.jar
+COPY --from=build /build/apps/shadeclock/target/shadeclock-*.jar app.jar
 
 EXPOSE 8081
 
-# Default to the fixture source so a container started with no configuration
-# serves obviously-fake data rather than pretending to be live.
-ENV SHADECLOCK_FORECAST_SOURCE=fixture
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

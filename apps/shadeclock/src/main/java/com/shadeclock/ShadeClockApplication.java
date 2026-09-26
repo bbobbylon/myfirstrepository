@@ -14,13 +14,19 @@ import org.springframework.context.annotation.Bean;
  * not yet heat-adapted.
  *
  * <p>Run with {@code ./mvnw spring-boot:run}, or as a JAR with
- * {@code java -jar target/shadeclock-0.1.0-SNAPSHOT.jar}.
+ * {@code java -jar target/shadeclock-0.1.0-SNAPSHOT.jar}. Since v0.2 it needs PostgreSQL - see
+ * {@code README.md} for the one command that starts one.
+ *
+ * <p><b>Scanning note.</b> The shared auth code lives in {@code com.commonauth}, outside this
+ * class's package, so component scanning is widened to reach it. The matching JPA entity and
+ * repository scans live in {@code JpaScanConfig} instead, because they must not apply under the
+ * {@code memory} profile - see that class for what broke.
  *
  * @see com.shadeclock.schedule.ScheduleBuilder the engine
  * @see com.shadeclock.rules.HeatRuleset the jurisdiction rules
  * @see com.shadeclock.heat.HeatIndexCalculator the NWS measurement underneath it all
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.shadeclock", "com.commonauth"})
 public class ShadeClockApplication {
 
     /**

@@ -1,19 +1,24 @@
 # CI for ShadeClock.
 #
-# Runs with NO network and NO database: weather comes from a deterministic synthetic
-# fixture. Same reasoning as RefillRadar's workflow - a build that depends on a
-# third-party API (here api.weather.gov) goes red when someone else has an outage, and
-# a CI signal nobody trusts is worse than no CI at all.
+# No third-party network calls - the forecast comes from a recorded fixture. It DOES need a
+# database as of v0.2: the persistence tests assert things a HashMap passes trivially and
+# PostgreSQL might not - a nullable DATE surviving a round trip, orphanRemoval actually
+# deleting a departed worker, and the CHECK constraints on latitude and longitude firing.
+#
+# The container job is NOT branch-gated, so the image is verified before a merge rather than
+# after it - see apps/refillradar/README.md for the incident that established that.
 name: ShadeClock CI
 
 on:
   push:
     paths:
       - 'apps/shadeclock/**'
+      - 'libs/common-auth/**'
       - '.github/workflows/shadeclock-ci.yml'
   pull_request:
     paths:
       - 'apps/shadeclock/**'
+      - 'libs/common-auth/**'
       - '.github/workflows/shadeclock-ci.yml'
 
 jobs:
@@ -24,6 +29,23 @@ jobs:
       run:
         working-directory: apps/shadeclock
 
+    # Matches the defaults in application.yml, so no test needs overriding config.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: shadeclock
+          POSTGRES_USER: shadeclock
+          POSTGRES_PASSWORD: shadeclock
+        ports:
+          - 5432:5432
+        # Without this the build can start before the database accepts connections.
+        options: >-
+          --health-cmd "pg_isready -U shadeclock"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,13 +54,22 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          # Caches ~/.m2 keyed on pom.xml, turning a ~2 minute dependency download into a
+          # few seconds on every run after the first.
           cache: 'maven'
+
+      # The application depends on com.commonauth:common-auth, which is published nowhere -
+      # it is built from this repository. Install it before the app resolves it.
+      - name: Build the shared auth module
+        working-directory: libs/common-auth
+        run: mvn -B install -DskipTests
 
       - name: Build and run tests
         run: mvn -B verify
 
       - name: Upload test reports
-        # always() so reports exist when tests FAIL - which is when you need them.
+        # always() so reports are published even when tests FAIL - which is precisely when
+        # you need to read them.
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -51,31 +82,63 @@ jobs:
     runs-on: ubuntu-latest
     needs: build          # never build an image from code that failed its tests
 
-    # Not gated on a branch, deliberately. PR #1 showed why: a branch-gated container
-    # job skips on the pull request, leaving the image unverified until AFTER the merge
-    # it was meant to protect. Verify everywhere, publish only from main - it is the
-    # registry push that takes a branch gate when one is added.
+    # Deliberately NOT gated on master/main. VERIFY everywhere, PUBLISH only from main - an
+    # image checked only on main is checked after the merge it was meant to protect. The
+    # registry push is what belongs behind a branch gate, and it is not wired up yet.
     steps:
       - uses: actions/checkout@v4
 
+      # Built from the REPOSITORY ROOT (note the trailing dot), because the image needs
+      # libs/common-auth and a context rooted at apps/shadeclock/ cannot see a sibling.
       - name: Build image
+        run: docker build -f apps/shadeclock/Dockerfile -t shadeclock:${{ github.sha }} .
+
+      # A user-defined network rather than the job's `services:` block, because this
+      # container is started with `docker run` and so is not on the job's service network.
+      - name: Start a database for the smoke test
         run: |
-          docker build \
-            -t shadeclock:${{ github.sha }} \
-            -t shadeclock:latest \
-            apps/shadeclock
+          docker network create shadeclock-net
+          docker run -d --name shadeclock-db --network shadeclock-net \
+            -e POSTGRES_DB=shadeclock \
+            -e POSTGRES_USER=shadeclock \
+            -e POSTGRES_PASSWORD=shadeclock \
+            postgres:16
+
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec shadeclock-db pg_isready -U shadeclock >/dev/null 2>&1; then
+              echo "PostgreSQL ready after ~${i}s"
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::PostgreSQL did not become ready within 60s"
+              docker logs shadeclock-db
+              exit 1
+            fi
+            sleep 1
+          done
 
       - name: Smoke test the image
         run: |
-          docker run -d --name shadeclock -p 8081:8081 shadeclock:${{ github.sha }}
+          # One helper, so every failure below prints the container's logs and cleans up.
+          # Without it a failing assertion leaves no diagnosis and leaks two containers.
+          fail() {
+            echo "::error::$1"
+            docker logs shadeclock
+            docker rm -f shadeclock shadeclock-db
+            exit 1
+          }
 
-          # Wait for the JVM to bind the port before curling it.
-          #
-          # Do NOT replace this with `curl --retry-connrefused` alone. That flag covers
-          # ECONNREFUSED only, and while a container is up but the app has not yet bound
-          # its port, Docker's proxy ACCEPTS the connection and then RESETS it - curl
-          # error 56, which --retry-connrefused does not retry. RefillRadar's job failed
-          # exactly this way; see apps/refillradar/README.md.
+          docker run -d --name shadeclock -p 8081:8081 \
+            --network shadeclock-net \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://shadeclock-db:5432/shadeclock \
+            -e SPRING_DATASOURCE_USERNAME=shadeclock \
+            -e SPRING_DATASOURCE_PASSWORD=shadeclock \
+            shadeclock:${{ github.sha }}
+
+          # Wait for the JVM to bind before curling. Do NOT rely on --retry-connrefused
+          # alone: it does not cover curl error 56 (connection reset), which is what Docker's
+          # proxy returns while the container is up but the app has not yet bound its port.
           echo "Waiting for application startup..."
           for i in $(seq 1 60); do
             if docker logs shadeclock 2>&1 | grep -q "Started ShadeClockApplication"; then
@@ -83,36 +146,209 @@ jobs:
               break
             fi
             if [ "$i" -eq 60 ]; then
-              echo "::error::Application did not start within 60s"
-              docker logs shadeclock
-              docker rm -f shadeclock
-              exit 1
+              fail "Application did not start within 60s"
             fi
             sleep 1
           done
 
-          # Exercises the real NWS heat index maths, not just "the process is alive".
-          echo "--- GET /api/heat-index?temperatureF=90&humidity=70 ---"
-          if ! curl --fail --silent --show-error \
-                    --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
-                    "localhost:8081/api/heat-index?temperatureF=90&humidity=70" \
-                    -o response.json; then
-            echo "::error::Endpoint did not respond. Container logs follow:"
-            docker logs shadeclock
-            docker rm -f shadeclock
-            exit 1
-          fi
+          # ---- 1. THE v0.1 BUG: the wide-open roster listing -----------------------
+          # One unauthenticated GET used to return every crew in the system: every worker's
+          # name, the dates revealing a week-or-more absence, and every site's coordinates.
+          # 401 because the security filter rejects before routing even happens.
+          echo "--- the old wide-open listing (expect 401, NOT 200) ---"
+          CODE=$(curl --silent --output body.json --write-out '%{http_code}' \
+                      --retry 10 --retry-delay 2 --retry-all-errors --retry-connrefused \
+                      localhost:8081/api/crews)
+          [ "$CODE" = "401" ] || fail "GET /api/crews returned $CODE, expected 401. Body: $(cat body.json)"
+          echo "OK: the roster listing is no longer readable by a stranger"
 
-          cat response.json; echo
+          # ---- 2. Every crew route refuses an anonymous caller --------------------
+          for path in "me/crews" "me/crews/any-id/schedule"; do
+            CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                        "localhost:8081/api/$path")
+            [ "$CODE" = "401" ] || fail "Anonymous /api/$path returned $CODE, expected 401"
+          done
+          echo "OK: a stranger cannot reach a crew route"
 
-          # 90°F at 70% RH is 106°F on the published NWS chart. If this drifts, the
-          # heat index implementation has changed and every schedule built on it moved.
-          if ! grep -q '"heatIndexF":106' response.json; then
-            echo "::error::Heat index regression - expected 106F for 90F/70% RH"
-            docker logs shadeclock
-            docker rm -f shadeclock
-            exit 1
-          fi
+          # ---- 3. THE OPPOSITE FAILURE: the reference routes stay open -----------
+          # Over-locking is the quieter bug - nothing looks broken, the app is merely useless
+          # at 2pm on a roof. A worker checking whether conditions are dangerous must not
+          # meet a login wall, and neither endpoint holds anybody's data.
+          echo "--- public reference routes (expect 200 with no credentials) ---"
+          curl --fail --silent localhost:8081/api/jurisdictions -o jur.json \
+            || fail "Anonymous /api/jurisdictions failed - the app is now useless mid-shift"
+          grep -q '"CA"' jur.json || fail "Jurisdiction list did not contain CA"
 
-          echo "Smoke test passed: container builds, boots as non-root, and the NWS heat index is correct."
-          docker rm -f shadeclock
+          curl --fail --silent "localhost:8081/api/heat-index?temperatureF=90&humidity=70" \
+               -o hi.json || fail "Anonymous /api/heat-index failed"
+          grep -q '"heatIndexF":106' hi.json || fail "Heat index maths changed: $(cat hi.json)"
+          # The uncertainty must travel with the number, anonymously or not.
+          grep -q '"statedErrorF":1.3' hi.json || fail "The stated error margin is missing"
+          echo "OK: the heat index and jurisdiction list still answer anyone, with their caveats"
+
+          # ---- 4. Anonymous traffic must not create sessions ---------------------
+          # Includes the PUBLIC routes, which is ShadeClock-specific: an endpoint that answers
+          # 200 to anyone and mints a session per request is an unauthenticated database write
+          # dressed as a heat-index lookup.
+          for i in $(seq 1 10); do
+            curl --silent --output /dev/null localhost:8081/api/me/crews
+            curl --silent --output /dev/null localhost:8081/api/jurisdictions
+          done
+          SESSIONS=$(docker exec shadeclock-db psql -U shadeclock -d shadeclock -tAc \
+            "SELECT count(*) FROM SPRING_SESSION")
+          [ "$SESSIONS" = "0" ] || fail "20 anonymous requests created $SESSIONS session rows, expected 0"
+          echo "OK: 10 refused + 10 public requests created 0 sessions"
+
+          # ---- 5. Register and log in two supervisors ---------------------------
+          # Writes the CSRF token to a file rather than stdout: called as X=$(fn), any fail()
+          # inside would have its ::error:: annotation captured into the variable instead of
+          # reaching the build log.
+          register_and_login() {
+            curl --fail --silent --show-error -c "$1.jar" -X POST localhost:8081/api/auth/register \
+                 -H 'Content-Type: application/json' \
+                 -d "{\"username\":\"$1\",\"password\":\"a-long-enough-ci-passphrase\"}" \
+                 -o /dev/null || fail "Registration failed for $1"
+            curl --fail --silent --show-error -c "$1.jar" -b "$1.jar" -X POST localhost:8081/api/auth/login \
+                 -H 'Content-Type: application/json' \
+                 -d "{\"username\":\"$1\",\"password\":\"a-long-enough-ci-passphrase\"}" \
+                 -o "$1.login.json" || fail "Login failed for $1"
+            if grep -q "a-long-enough-ci-passphrase" "$1.login.json"; then
+              fail "The login response for $1 echoed the password back"
+            fi
+            grep XSRF-TOKEN "$1.jar" | awk '{print $7}' > "$1.xsrf"
+            [ -s "$1.xsrf" ] || fail "No XSRF-TOKEN cookie was issued to $1"
+          }
+
+          register_and_login alice
+          register_and_login mallory
+          ALICE_XSRF=$(cat alice.xsrf)
+          MALLORY_XSRF=$(cat mallory.xsrf)
+          echo "OK: two supervisors registered and logged in, no credential in either response"
+
+          # ---- 6. Alice creates a crew, and it round-trips through PostgreSQL ----
+          CREATED=$(curl --silent --output created.json --write-out '%{http_code}' \
+                         -b alice.jar -X POST localhost:8081/api/crews \
+                         -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $ALICE_XSRF" \
+                         -d '{"name":"Paving Crew","siteLabel":"Route 12","latitude":34.0522,
+                              "longitude":-118.2437,"jurisdiction":"CA","workers":[
+                                {"name":"Adapted Veteran","heatWorkStartedOn":"2026-05-01"},
+                                {"name":"New Starter","heatWorkStartedOn":"2026-07-14"}]}')
+          [ "$CREATED" = "201" ] || fail "Creating a crew returned $CREATED, expected 201"
+          cat created.json; echo
+
+          CREW_ID=$(python3 -c "import json;print(json.load(open('created.json'))['id'])")
+          [ -n "$CREW_ID" ] || fail "No crew id came back"
+
+          # Both workers really landed, as rows - orphanRemoval and the nested mapping work.
+          WORKERS=$(docker exec shadeclock-db psql -U shadeclock -d shadeclock -tAc \
+            "SELECT count(*) FROM crew_workers WHERE crew_id = '$CREW_ID'")
+          [ "$WORKERS" = "2" ] || fail "Expected 2 worker rows, found $WORKERS"
+
+          # And the schedule is built from the stored crew, naming the unadapted worker.
+          curl --fail --silent -b alice.jar \
+               "localhost:8081/api/me/crews/$CREW_ID/schedule?date=2026-07-15" \
+               -o schedule.json || fail "Alice could not read her own crew's schedule"
+          grep -q '"crewName":"Paving Crew"' schedule.json || fail "The stored crew did not come back"
+          grep -q '"New Starter"' schedule.json \
+            || fail "The unadapted worker was not named in the plan: $(cat schedule.json)"
+          echo "OK: a crew round-trips through PostgreSQL and its plan names the right worker"
+
+          # ---- 7. THE security invariant: mallory cannot touch alice's crew -----
+          echo "--- mallory attacks alice's crew (expect 404 every time) ---"
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -b mallory.jar "localhost:8081/api/me/crews/$CREW_ID/schedule")
+          [ "$CODE" = "404" ] || fail "Mallory reading alice's schedule returned $CODE, expected 404"
+
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -b mallory.jar -X DELETE "localhost:8081/api/me/crews/$CREW_ID" \
+                      -H "X-XSRF-TOKEN: $MALLORY_XSRF")
+          [ "$CODE" = "404" ] || fail "Mallory deleting alice's crew returned $CODE, expected 404"
+
+          # A 404 is not enough on its own - assert the rows survived the attempt.
+          REMAINING=$(docker exec shadeclock-db psql -U shadeclock -d shadeclock -tAc \
+            "SELECT count(*) FROM crews WHERE id = '$CREW_ID'")
+          [ "$REMAINING" = "1" ] || fail "Alice's crew did not survive Mallory's delete"
+
+          curl --fail --silent -b mallory.jar localhost:8081/api/me/crews -o mallory.crews.json \
+            || fail "Mallory could not list her own (empty) crews"
+          [ "$(cat mallory.crews.json)" = "[]" ] \
+            || fail "Mallory's crew list was not empty: $(cat mallory.crews.json)"
+          echo "OK: mallory cannot read, delete or list alice's crew"
+
+          # ---- 8. The refusal is not an existence oracle ------------------------
+          REAL=$(curl --silent -b mallory.jar -w '|%{http_code}' \
+                      "localhost:8081/api/me/crews/$CREW_ID/schedule")
+          FAKE=$(curl --silent -b mallory.jar -w '|%{http_code}' \
+                      "localhost:8081/api/me/crews/00000000-0000-0000-0000-000000000000/schedule")
+          [ "$REAL" = "$FAKE" ] \
+            || fail "A real crew answered differently from a fictional one: '$REAL' vs '$FAKE'"
+          echo "OK: someone else's crew is indistinguishable from one that does not exist"
+
+          # ---- 9. Ownership does not transfer, and ids are not client-chosen ----
+          # Deliberately NOT claiming to test the id-reuse hijack: that attack needs a
+          # client-chosen id, and this API generates them server-side, so it is unreachable
+          # from here. The hijack guard in JpaCrewRepository is covered by
+          # SecurityIntegrationTest at the repository level, and was tamper-verified there.
+          # What this step does check is the invariant that matters either way: another
+          # supervisor's writes never move ownership of Alice's crew.
+          CODE=$(curl --silent --output hijack.json --write-out '%{http_code}' \
+                      -b mallory.jar -X POST localhost:8081/api/crews \
+                      -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $MALLORY_XSRF" \
+                      -d '{"name":"Hijack","siteLabel":"Nowhere","latitude":0.0,
+                           "longitude":0.0,"jurisdiction":"CA","workers":[]}')
+          # A fresh POST gets a NEW server-generated id, so this legitimately succeeds - the
+          # hijack is unreachable through the API precisely because ids are not client-chosen.
+          [ "$CODE" = "201" ] || fail "Mallory's own crew creation returned $CODE, expected 201"
+          STILL_ALICES=$(docker exec shadeclock-db psql -U shadeclock -d shadeclock -tAc \
+            "SELECT count(*) FROM crews c JOIN users u ON u.id = c.owner_account_id \
+             WHERE c.id = '$CREW_ID' AND u.username = 'alice'")
+          [ "$STILL_ALICES" = "1" ] || fail "Alice's crew changed owner"
+          echo "OK: crew ids are server-generated, and alice's crew is still alice's"
+
+          # ---- 10. A write with no CSRF token is refused -------------------------
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -b alice.jar -X POST localhost:8081/api/crews \
+                      -H 'Content-Type: application/json' \
+                      -d '{"name":"X","siteLabel":"S","latitude":34.0,"longitude":-118.0,
+                           "jurisdiction":"CA","workers":[]}')
+          [ "$CODE" = "403" ] || fail "A tokenless write returned $CODE, expected 403"
+          echo "OK: a write without a CSRF token is refused"
+
+          # ---- 11. The throttle costs an attacker something ---------------------
+          echo "--- six wrong passwords for alice (expect a 429 by the sixth) ---"
+          for i in $(seq 1 5); do
+            curl --silent --output /dev/null -X POST localhost:8081/api/auth/login \
+                 -H 'Content-Type: application/json' \
+                 -d '{"username":"alice","password":"wrong-password-guess"}'
+          done
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -X POST localhost:8081/api/auth/login \
+                      -H 'Content-Type: application/json' \
+                      -d '{"username":"alice","password":"wrong-password-guess"}')
+          [ "$CODE" = "429" ] || fail "The sixth wrong password returned $CODE, expected 429"
+
+          # The CORRECT password is refused too, which is observable proof that the refusal
+          # happens BEFORE the password is verified rather than after.
+          CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                      -X POST localhost:8081/api/auth/login \
+                      -H 'Content-Type: application/json' \
+                      -d '{"username":"alice","password":"a-long-enough-ci-passphrase"}')
+          [ "$CODE" = "429" ] || fail "The right password after five failures returned $CODE, expected 429"
+
+          ATTEMPTS=$(docker exec shadeclock-db psql -U shadeclock -d shadeclock -tAc \
+            "SELECT count(*) FROM login_attempts WHERE attempt_key LIKE '%alice%'")
+          [ "$ATTEMPTS" = "5" ] || fail "Expected exactly 5 recorded attempts for alice, found $ATTEMPTS"
+          echo "OK: refused after five failures, refused the right password too, recorded exactly 5"
+
+          # ---- 12. Flyway really migrated, and holds no more than it needs ------
+          echo "--- checking Flyway actually migrated the database ---"
+          TABLES=$(docker exec shadeclock-db psql -U shadeclock -d shadeclock -tAc \
+            "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public'")
+          echo "tables: $TABLES"
+          for table in crew_workers crews flyway_schema_history login_attempts users spring_session; do
+            echo "$TABLES" | grep -q "$table" || fail "Expected table '$table' is missing - Flyway did not run"
+          done
+          echo "OK: Flyway migrated every expected table"
+
+          echo "Smoke test passed: the container builds, migrates its database, keeps a stranger out of a crew roster, refuses to be an existence oracle, still answers the heat index to anyone, and costs a password guesser something."
+          docker rm -f shadeclock shadeclock-db
