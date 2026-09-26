@@ -15,12 +15,18 @@ import org.springframework.context.annotation.Bean;
  * of the safety net is not fraud or overspending. It is stationery.
  *
  * <p>Run with {@code ./mvnw spring-boot:run}, or as a JAR with
- * {@code java -jar target/renewalguard-0.1.0-SNAPSHOT.jar}.
+ * {@code java -jar target/renewalguard-0.1.0-SNAPSHOT.jar}. Since v0.2 it needs PostgreSQL -
+ * see {@code README.md} for the one command that starts one.
+ *
+ * <p><b>Scanning note.</b> The shared auth code lives in {@code com.commonauth}, outside this
+ * class's package, so component scanning is widened to reach it. The matching JPA entity and
+ * repository scans live in {@code JpaScanConfig} instead, because they must not apply under
+ * the {@code memory} profile - see that class for what broke.
  *
  * @see com.renewalguard.rules.RenewalCadence the 2027 six-month renewal change
  * @see com.renewalguard.remind.ReminderLadder the escalation schedule
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.renewalguard", "com.commonauth"})
 public class RenewalGuardApplication {
 
     /**

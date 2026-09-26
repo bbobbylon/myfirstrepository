@@ -7,8 +7,71 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
+  # Storage defaults to PostgreSQL with no fallback: an unreachable database stops the
+  # application starting. For a reminder service that is the only honest failure mode - an app
+  # that forgot your renewal date looks exactly like one that decided today is not a reminder
+  # day, and the user finds out when their coverage ends.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/renewalguard}
+    username: ${SPRING_DATASOURCE_USERNAME:renewalguard}
+    password: ${SPRING_DATASOURCE_PASSWORD:renewalguard}
+
+  jpa:
+    hibernate:
+      # validate, never update or create. Flyway owns the schema; Hibernate only checks the
+      # entities against it and refuses to start on a mismatch.
+      ddl-auto: validate
+    show-sql: false
+    # Off, so a lazily-loaded association touched after the request's transaction fails
+    # loudly in a test rather than quietly issuing extra queries in production.
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  session:
+    store-type: jdbc
+    timeout: 30m
+    jdbc:
+      # never: Flyway created SPRING_SESSION in V1. Two things creating the same tables is
+      # how they drift apart, and the loser is whichever ran second.
+      initialize-schema: never
+
 server:
-  port: 8082        # 8080 RefillRadar, 8081 ShadeClock, 8082 here
+  port: 8082        # 8080 RefillRadar, 8081 ShadeClock, 8082 here, 8083 SafeWord
+  # Only set this behind a proxy you control - see the README. The rate limiter counts the
+  # socket's address, which a client cannot forge; X-Forwarded-For is a string it can.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
+  servlet:
+    session:
+      cookie:
+        # The session cookie is the credential, and JavaScript has no reason to read it.
+        http-only: true
+        # The browser will not attach this cookie to a request started by another site.
+        same-site: strict
+        # MUST be true anywhere this is served over HTTPS. Defaults to false only so that
+        # http://localhost works; the application logs a warning on every boot where it is
+        # false, so the insecure setting is visible rather than buried in a file.
+        secure: ${SESSION_COOKIE_SECURE:false}
+
+# Shared by every app in this repository via the common-auth module, which is why the key
+# is `auth` rather than the application's own name. The reasoning behind these numbers is in
+# libs/common-auth (LoginThrottle) and in apps/refillradar/README.md: two counters, a window
+# that heals rather than a lockout, and a refusal that costs the server nothing because it
+# happens before the password is verified.
+auth:
+  login-throttle:
+    # Per username. Five is generous for typing errors and mean for guessing.
+    max-failures-per-username: 5
+    # Per source address, across all usernames - this is the one that catches spraying:
+    # one popular password tried against a thousand accounts leaves one failure on each.
+    max-failures-per-ip: 20
+    window: PT15M
+    # Registration is metered separately, and every attempt counts rather than only the
+    # ones that create an account: a "username taken" answer is itself worth rationing.
+    max-registrations-per-ip: 5
+    registration-window: PT1H
 
 renewalguard:
   # How long an address confirmation is trusted before we prompt again.

@@ -4,8 +4,9 @@
 renewals — because most people who lose coverage never became ineligible, they just missed a
 letter.
 
-> **v0.1 — working core engine.** 77 tests, runs offline. Not production ready: no auth, no
-> database, no actual sending.
+> **v0.2 — persistence and identity.** 90 tests. Cases live in PostgreSQL, every read is
+> scoped to the logged-in owner, and logins are rate limited. Still not production ready: no
+> actual sending, and see [Limitations](#limitations) for what auth does *not* cover.
 >
 > **Not an eligibility decision.** Only your state agency decides whether you qualify. Your
 > own renewal notice always outranks this app.
@@ -43,20 +44,51 @@ amending SSA §1902(e)(14)). The substance is consistent; the section number isn
 
 ## Quick start
 
-JDK 21+, Maven 3.9+. No database, no network. Port **8082**.
+JDK 21+, Maven 3.9+, Docker (for PostgreSQL). No network. Port **8082**.
+
+Since v0.2 this needs a database and a login. Three commands, in order — the shared auth
+module has to be installed first, because `com.commonauth:common-auth` is published nowhere
+and is built from this repository:
 
 ```bash
-mvn test                # 77 tests, offline
+docker run -d --name renewalguard-db -p 5432:5432 \
+  -e POSTGRES_DB=renewalguard -e POSTGRES_USER=renewalguard \
+  -e POSTGRES_PASSWORD=renewalguard postgres:16
+
+mvn -f ../../libs/common-auth/pom.xml install -DskipTests   # once, and after any change to it
+mvn test                                                    # 90 tests
 mvn spring-boot:run
 ```
 
+No database to hand? `mvn spring-boot:run -Dspring-boot.run.profiles=memory` starts with
+in-memory stores. Data is lost on restart, so it is a demo, not a deployment — and
+`MemoryProfileTest` runs on every build so this instruction cannot quietly stop working.
+
+Register, log in, and keep the cookie jar. The `XSRF-TOKEN` cookie must be echoed back as a
+header on every write; that is CSRF protection, not ceremony:
+
 ```bash
-ID=$(curl -sS -X POST localhost:8082/api/cases -H 'Content-Type: application/json' -d '{
-  "userId":"robert","stateCode":"CA","category":"EXPANSION_ADULT",
+curl -sS -c jar -X POST localhost:8082/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"robert","password":"a-long-enough-passphrase"}'
+
+curl -sS -c jar -b jar -X POST localhost:8082/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"robert","password":"a-long-enough-passphrase"}'
+
+XSRF=$(grep XSRF-TOKEN jar | awk '{print $7}')
+```
+
+Then track a case. Note there is no `userId` in the payload: the owner comes from the session.
+
+```bash
+ID=$(curl -sS -b jar -X POST localhost:8082/api/cases \
+  -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $XSRF" -d '{
+  "stateCode":"CA","category":"EXPANSION_ADULT",
   "renewalDueOn":"2026-10-05"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 
-curl -s "localhost:8082/api/cases/$ID/status"   | python3 -m json.tool
-curl -s "localhost:8082/api/cases/$ID/reminder" | python3 -m json.tool
+curl -s -b jar "localhost:8082/api/me/cases/$ID/status"   | python3 -m json.tool
+curl -s -b jar "localhost:8082/api/me/cases/$ID/reminder" | python3 -m json.tool
 ```
 
 ```
@@ -117,24 +149,132 @@ immigration status** — a deadline tracker has no business holding eligibility 
 
 ## API
 
+Everything except registration and login needs a session. Writes also need the CSRF header.
+
 | Method | Path | |
 |---|---|---|
-| `POST` | `/api/cases` | Start tracking a case |
-| `GET` | `/api/users/{id}/cases` | List |
-| `GET` | `/api/cases/{id}/status` | **Main endpoint** — deadline, urgency, checklist, caveats |
-| `GET` | `/api/cases/{id}/reminder` | The exact message that would be sent |
+| `POST` | `/api/auth/register` | Create an account |
+| `POST` | `/api/auth/login` | Start a session |
+| `POST` | `/api/auth/logout` | End it, server-side |
+| `POST` | `/api/cases` | Start tracking a case — owner comes from the session |
+| `GET` | `/api/me/cases` | List **your own** cases |
+| `GET` | `/api/me/cases/{id}/status` | **Main endpoint** — deadline, urgency, checklist, caveats |
+| `GET` | `/api/me/cases/{id}/reminder` | The exact message that would be sent |
+| `DELETE` | `/api/me/cases/{id}` | Stop tracking |
+
+### What v0.2 changed, and why it is a removal rather than a check
+
+v0.1 trusted the caller to say whose data they wanted:
+
+```
+v0.1   POST /api/cases          {"userId": "...", ...}   <- client picks the owner
+v0.2   POST /api/cases          {...}                    <- the session does
+
+v0.1   GET  /api/users/{id}/cases                        <- client picks whose
+v0.2   GET  /api/me/cases                               <- the session does
+
+v0.1   GET  /api/cases/{id}/status                       <- no check whatsoever
+v0.2   GET  /api/me/cases/{id}/status                    <- owner is in the SQL WHERE clause
+```
+
+A case id still appears in the path, because unlike SafeWord — where one account has exactly
+one circle — a person here genuinely tracks several and has to name one. So this is the other
+half of the fix: the identifier stays, and `BenefitCaseRepository` simply **does not offer a
+method that looks a case up without an owner**. A controller check is one `if` a future handler
+can forget; a missing method is a compile error.
+
+**Someone else's case returns 404, never 403.** A 403 would confirm the id is real, and "real,
+just not yours" is exactly what an attacker enumerating ids wants to learn — "this person has a
+Medicaid case" is itself the sensitive fact here. Both the unit suite and the CI smoke test
+assert that a real-but-not-yours id answers byte-for-byte identically to a fabricated one.
+
+Three of these controls were verified by putting the original bug back and confirming the tests
+go red: the owner-blind lookup (2 tests failed, mallory got `200` on alice's case), the
+owner-blind delete (`204` — the case was actually destroyed), and the in-memory store's
+ownership filter. A test that has never failed is a test whose value is unmeasured.
 
 ## Deployment
 
+### Local
+
 ```bash
+# 1. The shared auth module, into your local Maven repository. Required first.
+mvn -f ../../libs/common-auth/pom.xml install -DskipTests
+
+# 2. A database.
+docker run -d --name renewalguard-db -p 5432:5432 \
+  -e POSTGRES_DB=renewalguard -e POSTGRES_USER=renewalguard \
+  -e POSTGRES_PASSWORD=renewalguard postgres:16
+
+# 3. The app. Flyway migrates on startup; Hibernate then validates against the result and
+#    refuses to boot on a mismatch, so a schema drift is a failed start, not a silent bug.
 mvn package && java -jar target/renewalguard-0.1.0-SNAPSHOT.jar
-docker build -t renewalguard . && docker run -p 8082:8082 renewalguard
 ```
 
-**CI** ([`renewalguard-ci.yml`](../../.github/workflows/renewalguard-ci.yml)): build + test →
-container build (`needs: build`, not branch-gated) → smoke test that POSTs a real case. The
-`--retry-all-errors` curl fix is in from the start — see
-[RefillRadar's CI notes](../refillradar/README.md#deployment).
+### Container
+
+**Build from the repository root, not from this directory:**
+
+```bash
+cd ../..                                                     # repo root
+docker build -f apps/renewalguard/Dockerfile -t renewalguard .
+```
+
+The trailing `.` is load-bearing. The image needs `libs/common-auth`, and a build context
+rooted at `apps/renewalguard/` cannot see a sibling directory — Docker would fail resolving
+`com.commonauth:common-auth`, which is published nowhere. The Dockerfile installs the module
+inside its build stage before packaging the app.
+
+```bash
+docker network create renewalguard-net
+docker run -d --name renewalguard-db --network renewalguard-net \
+  -e POSTGRES_DB=renewalguard -e POSTGRES_USER=renewalguard \
+  -e POSTGRES_PASSWORD=renewalguard postgres:16
+
+docker run -p 8082:8082 --network renewalguard-net \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://renewalguard-db:5432/renewalguard \
+  -e SPRING_DATASOURCE_USERNAME=renewalguard \
+  -e SPRING_DATASOURCE_PASSWORD=renewalguard \
+  -e SESSION_COOKIE_SECURE=true \
+  renewalguard
+```
+
+### Settings you must get right in production
+
+| Variable | Default | Set it to |
+|---|---|---|
+| `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | local Postgres | your database |
+| `SESSION_COOKIE_SECURE` | `false` | **`true`** anywhere served over HTTPS — otherwise the session cookie travels in the clear on any accidental `http://` request. The app logs a warning on every boot where it is false, so the insecure setting is visible rather than buried in a file |
+| `FORWARD_HEADERS_STRATEGY` | `none` | `framework` **only** behind a proxy you control that overwrites `X-Forwarded-For`. The login throttle counts per source address; with `none` that address is the socket's, which a client cannot forge. Set it without such a proxy and anyone can rotate the header for a fresh budget, or forge someone else's address and spend theirs |
+
+### Cloud CI/CD
+
+[`renewalguard-ci.yml`](../../.github/workflows/renewalguard-ci.yml) runs on every push and PR
+touching `apps/renewalguard/**`, `libs/common-auth/**` or the workflow itself. Two jobs:
+
+1. **Build and test** — installs `libs/common-auth`, then `mvn verify` against a real
+   `postgres:16` service container. The service is needed because the persistence tests assert
+   things a `HashMap` passes trivially and PostgreSQL might not: a nullable `DATE` surviving a
+   round trip, an enum stored by name rather than ordinal, and the `CHECK` constraints on
+   `state_code` and `response_window_days` actually firing.
+2. **Build container image** (`needs: build`) — builds from the repo root, starts its own
+   PostgreSQL on a user-defined network, and smoke-tests the running container: anonymous
+   requests get `401`, ten of them create **0** session rows, two users register and log in,
+   a case round-trips with its response window intact, **mallory cannot read, delete or list
+   alice's case**, the refusal is byte-identical to one for a fabricated id, a tokenless write
+   gets `403`, a sixth wrong password gets `429` (and so does the *correct* one, which is
+   observable proof the refusal happens before the password is checked), and Flyway's tables
+   exist with no column able to hold an SSN, income, household or immigration field.
+
+Neither job is branch-gated, deliberately. **Verify everywhere, publish only from `main`** — an
+image checked only on `main` is checked after the merge it was meant to protect. The registry
+push is what belongs behind a branch gate, and it is not wired up yet; when it is, tag with the
+commit SHA, never `latest` alone, because you cannot roll back to `latest`.
+
+The `--retry-all-errors` curl flag in the smoke test is load-bearing: `--retry-connrefused`
+alone does not cover curl error 56 (connection reset), which is what Docker's port proxy returns
+while the container is up but the app has not yet bound its port. See
+[RefillRadar's CI notes](../refillradar/README.md#deployment) for the incident.
 
 ## Limitations
 
@@ -142,17 +282,24 @@ container build (`needs: build`, not branch-gated) → smoke test that POSTs a r
 |---|---|---|
 | 1 | **Response-window figures single-source**, unverified against regulation text | They shape reminder cadence only, never quoted as legal fact |
 | 2 | **No document storage** | Deliberate — see above. Checklist only |
-| 3 | **No authentication** | A case reveals someone is on Medicaid in a given state. **Must fix before exposure** |
-| 4 | **In-memory storage** | Cases lost on restart |
+| 3 | ~~No authentication~~ | **Fixed in v0.2.** Sessions, BCrypt, a login throttle, and every read scoped to the session's owner |
+| 4 | ~~In-memory storage~~ | **Fixed in v0.2.** PostgreSQL with Flyway; an unreachable database stops the app starting rather than silently losing deadlines |
+| 4a | **Rate limiting does not stop a distributed attack** | A few guesses from each of thousands of addresses stays under both limits. No CAPTCHA, no second factor, and the user is never told someone is trying |
+| 4b | **No password reset, email verification or account deletion** | And the first admin has to be promoted with SQL |
+| 4c | **No backups, retention policy or encryption at rest** | For data that records who is enrolled in Medicaid |
 | 5 | **No actual sending.** Reminders are composed and previewable only | The scheduled sweep + SMS/email is v0.2. **SMS is mandatory, not optional** — this audience is least reachable by email |
 | 6 | **SNAP not modelled** | Accepted and flagged, never silently given Medicaid's cadence |
 | 7 | **Renewal date is user-entered** — no agency API exists | If their notice disagrees, the notice wins, and the app says so |
 
 ### Roadmap
 
-- **v0.2** — PostgreSQL (4); daily sweep + Twilio SMS and email with delivery receipts (5);
-  encrypted locker behind a security review (2)
-- **v0.3** — auth (3); SNAP cadence (6); per-state response windows once verified (1)
+- ~~**v0.2** — PostgreSQL (4); auth (3)~~ — **done.** Both arrived together, because neither
+  is much use alone: accounts that vanish on restart are not accounts, and durable cases nobody
+  owns are still readable by anyone who guesses an id
+- **v0.3** — daily sweep + Twilio SMS and email with delivery receipts (5); distributed-attack
+  defences (4a); password reset and account deletion (4b)
+- **v0.4** — SNAP cadence (6); per-state response windows once verified (1); encrypted locker
+  behind a security review (2)
 
 **Non-goals** — determining eligibility; auto-filing renewals; collecting SSN or income.
 

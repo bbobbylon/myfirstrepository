@@ -16,6 +16,11 @@ The usual advice is to wait for a third occurrence before abstracting, and that 
 advice for ordinary code — an abstraction drawn from one example is a guess. For a control
 whose failure mode is a breach, the second occurrence is the signal.
 
+**The third app is the receipt.** RenewalGuard v0.2 adopted the whole stack as a dependency
+line, a fifteen-line `SecurityConfig` holding only its route rules, and a `JpaScanConfig` — no
+copied login throttle, no copied session config, no third chance to fix a bug in two places out
+of three. Consumers: **RefillRadar**, **SafeWord**, **RenewalGuard**.
+
 ## What is in here
 
 | | |
@@ -34,8 +39,10 @@ whose failure mode is a breach, the second occurrence is the signal.
   If you add a column here, every consuming app needs its own migration for it.
 - **Authorization rules.** Which routes are public is a *product* decision that differs per
   app — SafeWord leaves its pause screen and call checker open to anyone on purpose, because
-  someone being pressured by a stranger on the phone must not meet a login wall. Only the
-  hardening is shared. A route should never become public in a file nobody read.
+  someone being pressured by a stranger on the phone must not meet a login wall, while
+  RenewalGuard makes everything but registration and login private because it has no such
+  moment. Only the hardening is shared. A route should never become public in a file nobody
+  read.
 
 ## Using it
 
